@@ -17,6 +17,20 @@ import {
 } from "../retrieval/normalize.js";
 import { ensureDefaultCatalogSynonyms } from "../retrieval/synonyms.js";
 import { upsertProductEmbeddingIfNeeded } from "../retrieval/embeddings.js";
+import { ensureManagedStorefrontAccessToken } from "../shopify/admin.js";
+import { storefrontQuery } from "../shopify/client.js";
+import { LIST_ALL_PRODUCTS } from "../shopify/queries.js";
+import { mapProduct } from "../shopify/mappers.js";
+
+interface StorefrontProductPage {
+  products?: {
+    pageInfo?: {
+      hasNextPage: boolean;
+      endCursor: string | null;
+    };
+    edges?: Array<{ node: unknown }>;
+  };
+}
 
 /**
  * Fetch all products from Shopify's public REST API (/products.json).
@@ -42,6 +56,35 @@ async function fetchAllShopifyProducts(): Promise<Product[]> {
     }
 
     page++;
+  }
+
+  return all;
+}
+
+async function fetchAllStorefrontProducts(): Promise<Product[]> {
+  const all: Product[] = [];
+  let after: string | null = null;
+
+  while (true) {
+    const data: StorefrontProductPage = await storefrontQuery<StorefrontProductPage>(LIST_ALL_PRODUCTS, {
+      first: 100,
+      after,
+    });
+
+    const edges = data.products?.edges ?? [];
+    for (const edge of edges) {
+      if (edge?.node) {
+        all.push(mapProduct(edge.node));
+      }
+    }
+
+    const pageInfo: { hasNextPage: boolean; endCursor: string | null } | undefined =
+      data.products?.pageInfo;
+    if (!pageInfo?.hasNextPage || !pageInfo.endCursor) {
+      break;
+    }
+
+    after = pageInfo.endCursor;
   }
 
   return all;
@@ -279,9 +322,25 @@ export async function syncShopifyProducts(): Promise<{
 
   try {
     await ensureDefaultCatalogSynonyms();
-    console.log("[sync] Fetching all products from Shopify REST API...");
-    const products = await fetchAllShopifyProducts();
-    console.log(`[sync] Fetched ${products.length} products from Shopify`);
+    let storefrontToken: string | null = null;
+    try {
+      storefrontToken = await ensureManagedStorefrontAccessToken(env.SHOPIFY_STORE_DOMAIN);
+    } catch (error) {
+      console.warn("[sync] Unable to provision managed Storefront token. Falling back if possible.", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    let products: Product[];
+
+    if (storefrontToken) {
+      console.log("[sync] Fetching all products from Shopify Storefront GraphQL...");
+      products = await fetchAllStorefrontProducts();
+      console.log(`[sync] Fetched ${products.length} products from Shopify Storefront GraphQL`);
+    } else {
+      console.log("[sync] No managed Storefront token found. Falling back to public Shopify REST catalog...");
+      products = await fetchAllShopifyProducts();
+      console.log(`[sync] Fetched ${products.length} products from Shopify public catalog`);
+    }
 
     for (const product of products) {
       await upsertProduct(product);

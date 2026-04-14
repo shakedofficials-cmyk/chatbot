@@ -1,4 +1,5 @@
 import { env } from "../../config.js";
+import { getStorefrontAccessToken } from "./admin.js";
 
 const STOREFRONT_API_VERSION = "2025-01";
 
@@ -18,11 +19,19 @@ export async function storefrontQuery<T>(
 ): Promise<T> {
   const operationName = getOperationName(query);
   const url = `https://${env.SHOPIFY_STORE_DOMAIN}/api/${STOREFRONT_API_VERSION}/graphql.json`;
+  const storefrontToken = await getStorefrontAccessToken(env.SHOPIFY_STORE_DOMAIN);
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  if (storefrontToken) {
+    headers["X-Shopify-Storefront-Access-Token"] = storefrontToken;
+  }
 
   console.info("[shopify] storefront request", {
     operationName,
     shopDomain: env.SHOPIFY_STORE_DOMAIN,
-    tokenPresent: Boolean(env.SHOPIFY_STOREFRONT_ACCESS_TOKEN),
+    tokenPresent: Boolean(storefrontToken),
     variableKeys: Object.keys(variables),
   });
 
@@ -30,10 +39,7 @@ export async function storefrontQuery<T>(
   try {
     res = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Storefront-Access-Token": env.SHOPIFY_STOREFRONT_ACCESS_TOKEN,
-      },
+      headers,
       body: JSON.stringify({ query, variables }),
     });
   } catch (error) {

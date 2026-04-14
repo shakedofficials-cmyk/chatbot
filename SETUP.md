@@ -28,16 +28,21 @@ A custom AI chatbot for your Shopify store that:
 
 ## Step-by-Step Setup
 
-### 1. Get Your Shopify Storefront API Token
+### 1. Create a Shopify Custom App
 
 1. In Shopify Admin, go to **Settings → Apps and sales channels → Develop apps**
 2. Create a new app (name it "ORJN Concierge")
-3. Under **Configuration → Storefront API scopes**, enable:
+3. Under **Configuration → Admin API scopes**, enable:
+   - `read_products`
+   - `read_inventory`
+4. Under **Configuration → Storefront API scopes**, enable:
    - `unauthenticated_read_product_listings`
    - `unauthenticated_read_product_inventory`
    - `unauthenticated_write_checkouts`
    - `unauthenticated_read_checkouts`
-4. Install the app and copy the **Storefront API access token**
+5. Set the app URL to your backend URL and add this redirect URL:
+   - `https://your-backend-url.com/auth/callback`
+6. Install the app
 
 ### 2. Get Your OpenAI API Key
 
@@ -59,7 +64,11 @@ postgresql://user:password@host:5432/database_name
 2. Copy `.env.example` to `.env` and fill in your values:
    ```
    SHOPIFY_STORE_DOMAIN=your-store.myshopify.com
-   SHOPIFY_STOREFRONT_ACCESS_TOKEN=your-token-here
+   SHOPIFY_API_KEY=your-shopify-app-api-key
+   SHOPIFY_API_SECRET=your-shopify-app-api-secret
+   SHOPIFY_APP_URL=https://your-backend-url.com
+   SHOPIFY_AUTH_SCOPES=read_products,read_inventory,unauthenticated_read_product_listings,unauthenticated_read_product_inventory,unauthenticated_read_checkouts,unauthenticated_write_checkouts
+   SHOPIFY_STOREFRONT_ACCESS_TOKEN=optional-fallback-token
    OPENAI_API_KEY=sk-...
    OPENAI_EMBEDDING_MODEL=text-embedding-3-small
    DATABASE_URL=postgresql://...
@@ -74,6 +83,10 @@ postgresql://user:password@host:5432/database_name
 4. Apply database migrations: `npx prisma migrate deploy`
 5. Build: `npm run build`
 6. Start: `npm start`
+7. Complete the Shopify install flow once:
+   - open `https://your-backend-url.com/auth/start?shop=your-store.myshopify.com`
+   - approve the app
+   - the backend stores the Admin token, creates a managed Storefront token, and refreshes the Admin token automatically when needed
 
 If using **Railway**:
 - Connect your GitHub repo
@@ -156,7 +169,12 @@ These show up automatically in product cards and comparisons.
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `SHOPIFY_STORE_DOMAIN` | Yes | Your `.myshopify.com` domain |
-| `SHOPIFY_STOREFRONT_ACCESS_TOKEN` | Yes | Storefront API token |
+| `SHOPIFY_API_KEY` | Yes for OAuth install flow | Shopify app API key |
+| `SHOPIFY_API_SECRET` | Yes for OAuth install flow | Shopify app API secret |
+| `SHOPIFY_APP_URL` | Yes for OAuth install flow | Public backend base URL used for OAuth redirects |
+| `SHOPIFY_AUTH_SCOPES` | No | Comma-separated scopes used by `/auth/start` |
+| `SHOPIFY_STOREFRONT_ACCESS_TOKEN` | No | Optional fallback Storefront token; installed app tokens are preferred |
+| `SHOPIFY_STOREFRONT_TOKEN_TITLE` | No | Title used when creating a managed Storefront access token |
 | `OPENAI_API_KEY` | Yes | OpenAI API key |
 | `OPENAI_EMBEDDING_MODEL` | No | Embedding model for semantic retrieval; defaults to `text-embedding-3-small` |
 | `DATABASE_URL` | Yes | PostgreSQL connection string |
@@ -176,6 +194,8 @@ The live chatbot now answers product questions from the synced Postgres catalog,
 
 - Shopify remains the source of truth
 - the app syncs products into Postgres on startup and every `SYNC_INTERVAL_MINUTES`
+- once the Shopify app is installed through `/auth/start`, sync prefers Storefront GraphQL with the managed Storefront token
+- if no managed token exists yet, sync falls back to the public catalog until OAuth is completed
 - lexical retrieval runs from normalized catalog fields in Postgres
 - semantic retrieval uses embeddings stored in the catalog index
 - size and availability answers are grounded in synced variant data
@@ -233,7 +253,8 @@ Backend runs on `http://localhost:3001`, widget on `http://localhost:5173`.
 
 - **Widget doesn't appear**: Check that the app embed is enabled in theme customizer
 - **"Network error"**: Check that `CORS_ORIGIN` includes your store domain
-- **No products returned**: Verify your Storefront API token has the correct scopes
+- **OAuth install fails**: Verify `SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET`, `SHOPIFY_APP_URL`, and the redirect URL configured in Shopify
+- **No products returned**: Verify the app was installed through `/auth/start` and the Shopify scopes include both Admin and Storefront scopes
 - **Hybrid retrieval errors after deploy**: Make sure the latest Prisma migration ran successfully before the server starts
 - **Unexpected ranking results**: Use `POST /api/retrieval/debug` with your debug secret to inspect lexical and semantic candidates
 - **AI errors**: Check your OpenAI API key and billing status at https://platform.openai.com/usage

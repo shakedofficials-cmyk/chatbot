@@ -4,6 +4,22 @@ import { z } from "zod";
 const envSchema = z.object({
   SHOPIFY_STORE_DOMAIN: z.string().default("demo.myshopify.com"),
   SHOPIFY_STOREFRONT_ACCESS_TOKEN: z.string().default(""),
+  SHOPIFY_API_KEY: z.string().default(""),
+  SHOPIFY_API_SECRET: z.string().default(""),
+  SHOPIFY_APP_URL: z.string().default(""),
+  SHOPIFY_AUTH_SCOPES: z
+    .string()
+    .default(
+      [
+        "read_products",
+        "read_inventory",
+        "unauthenticated_read_product_listings",
+        "unauthenticated_read_product_inventory",
+        "unauthenticated_read_checkouts",
+        "unauthenticated_write_checkouts",
+      ].join(",")
+    ),
+  SHOPIFY_STOREFRONT_TOKEN_TITLE: z.string().default("ORJN Concierge Storefront"),
   OPENAI_API_KEY: z.string().default(""),
   OPENAI_MODEL: z.string().default("gpt-4o"),
   OPENAI_EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),
@@ -27,19 +43,32 @@ if (env.NODE_ENV === "production" && env.CORS_ORIGIN === "*") {
   );
 }
 
-// Dev mode = no Shopify credentials (use mock products)
-export const usesMockShopify = !env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
+export const hasLiveShopifyStore =
+  env.SHOPIFY_STORE_DOMAIN.trim().toLowerCase() !== "demo.myshopify.com";
+
+export const hasShopifyOAuthConfig = Boolean(
+  env.SHOPIFY_API_KEY && env.SHOPIFY_API_SECRET && env.SHOPIFY_APP_URL
+);
+
+// Dev mode = no real Shopify store configured.
+export const usesMockShopify = !hasLiveShopifyStore;
 
 if (env.NODE_ENV === "production") {
   if (!env.SHOPIFY_STOREFRONT_ACCESS_TOKEN) {
     console.warn(
-      "WARNING: SHOPIFY_STOREFRONT_ACCESS_TOKEN is missing. Product and cart actions will use mock Shopify data."
+      "WARNING: SHOPIFY_STOREFRONT_ACCESS_TOKEN is missing. Storefront cart requests can still work tokenless, but token-gated Storefront fields rely on either this env var or an installed Shopify app token."
     );
   }
 
   if (env.SHOPIFY_STORE_DOMAIN === "demo.myshopify.com") {
     console.warn(
       "WARNING: SHOPIFY_STORE_DOMAIN is using the demo default. Live Shopify product requests will not target your merchant store."
+    );
+  }
+
+  if (!hasShopifyOAuthConfig) {
+    console.warn(
+      "WARNING: Shopify OAuth config is incomplete. Set SHOPIFY_API_KEY, SHOPIFY_API_SECRET, and SHOPIFY_APP_URL to enable install callback handling and token refresh."
     );
   }
 }

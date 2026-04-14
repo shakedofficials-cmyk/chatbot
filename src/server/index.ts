@@ -5,13 +5,14 @@ import compression from "compression";
 import rateLimit from "express-rate-limit";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-import { env } from "./config.js";
-import { usesMockShopify } from "./config.js";
+import { env, hasLiveShopifyStore } from "./config.js";
 import { prisma } from "./db/client.js";
 import chatRoutes from "./routes/chat.js";
 import analyticsRoutes from "./routes/analytics.js";
 import retrievalRoutes from "./routes/retrieval.js";
+import authRoutes from "./routes/auth.js";
 import { syncShopifyProducts } from "./services/sync/shopify-sync.js";
+import { refreshAllInstalledAdminTokens } from "./services/shopify/admin.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -74,6 +75,7 @@ const analyticsLimiter = rateLimit({
 app.use("/api/chat", chatLimiter, chatRoutes);
 app.use("/api/analytics", analyticsLimiter, analyticsRoutes);
 app.use("/api/retrieval", retrievalRoutes);
+app.use("/auth", authRoutes);
 
 // Health check - pings DB to catch connection failures
 app.get("/api/health", async (_req: Request, res: Response) => {
@@ -116,7 +118,11 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`ORJN Concierge server running on port ${PORT}`);
 
   // Non-blocking initial sync + periodic re-sync
-  if (!usesMockShopify) {
+  if (hasLiveShopifyStore) {
+    refreshAllInstalledAdminTokens().catch((error) =>
+      console.error("[shopify] startup admin token refresh failed:", error)
+    );
+
     syncShopifyProducts()
       .then((r) => console.log("[sync] Initial sync complete:", r))
       .catch((e) => console.error("[sync] Initial sync failed:", e));
@@ -127,6 +133,13 @@ const server = app.listen(PORT, "0.0.0.0", () => {
         .then((r) => console.log("[sync] Periodic sync complete:", r))
         .catch((e) => console.error("[sync] Periodic sync failed:", e));
     }, intervalMs);
+
+    const refreshIntervalMs = 24 * 60 * 60 * 1000;
+    setInterval(() => {
+      refreshAllInstalledAdminTokens().catch((error) =>
+        console.error("[shopify] periodic admin token refresh failed:", error)
+      );
+    }, refreshIntervalMs);
   }
 });
 

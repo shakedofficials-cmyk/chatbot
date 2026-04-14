@@ -30,6 +30,28 @@ model AnalyticsEvent {
 
 // ── Shopify product sync tables ──
 
+model ShopifyStore {
+  id                         String   @id @default(cuid())
+  shopDomain                 String   @unique
+  adminAccessToken           String
+  adminAccessTokenExpiresAt  DateTime?
+  adminRefreshToken          String?
+  adminRefreshTokenExpiresAt DateTime?
+  adminScopes                String   @default("")
+  storefrontAccessToken      String?
+  storefrontAccessTokenId    String?
+  storefrontAccessScopes     String?
+  storefrontTokenCreatedAt   DateTime?
+  lastAdminRefreshAt         DateTime?
+  installedAt                DateTime @default(now())
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  @@index([shopDomain])
+  @@index([adminAccessTokenExpiresAt])
+  @@index([adminRefreshTokenExpiresAt])
+}
+
 model SyncProduct {
   id                String              @id                // Shopify GID
   handle            String              @unique
