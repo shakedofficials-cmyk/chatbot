@@ -10,7 +10,7 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "outDir": "dist/server",
-    "rootDir": "src/server",
+    "rootDir": "src",
     "declaration": true
   },
   "include": ["src/server", "src/shared"],
