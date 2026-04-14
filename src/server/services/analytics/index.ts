@@ -18,7 +18,7 @@ export async function logEvent(
       data: {
         name,
         sessionId,
-        payload: payload as any,
+        payload: JSON.stringify(payload),
       },
     });
   } catch (err) {

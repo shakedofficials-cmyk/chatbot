@@ -2,8 +2,10 @@ import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { orchestrate } from "../services/ai/orchestrator.js";
+import { devOrchestrate } from "../services/ai/dev-orchestrator.js";
 import { getOrCreateSession, updateSession, trimHistory } from "../services/session/index.js";
 import { logEvent } from "../services/analytics/index.js";
+import { isDevMode } from "../config.js";
 import type { ChatMessage } from "../../shared/types.js";
 
 const router = Router();
@@ -33,8 +35,9 @@ router.post("/", async (req: Request, res: Response) => {
       await logEvent(sessionId, "first_message_sent", {});
     }
 
-    // Run AI orchestration
-    const result = await orchestrate(
+    // Run AI orchestration (dev mode uses mock data, production uses Claude + live Shopify)
+    const runOrchestrate = isDevMode ? devOrchestrate : orchestrate;
+    const result = await runOrchestrate(
       message,
       trimHistory(session.conversationHistory),
       sessionId,

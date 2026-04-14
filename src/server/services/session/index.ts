@@ -1,6 +1,10 @@
 import { prisma } from "../../db/client.js";
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages.js";
 
+function parseJson<T>(value: string, fallback: T): T {
+  try { return JSON.parse(value); } catch { return fallback; }
+}
+
 interface SessionData {
   cartId: string | null;
   conversationHistory: MessageParam[];
@@ -17,9 +21,9 @@ export async function getOrCreateSession(sessionId: string): Promise<SessionData
 
   return {
     cartId: session.cartId,
-    conversationHistory: (session.conversationLog as unknown as MessageParam[]) ?? [],
-    recentProducts: (session.recentProducts as unknown as string[]) ?? [],
-    preferences: (session.preferences as unknown as Record<string, unknown>) ?? {},
+    conversationHistory: parseJson<MessageParam[]>(session.conversationLog, []),
+    recentProducts: parseJson<string[]>(session.recentProducts, []),
+    preferences: parseJson<Record<string, unknown>>(session.preferences, {}),
   };
 }
 
@@ -37,13 +41,13 @@ export async function updateSession(
     data: {
       ...(data.cartId !== undefined && { cartId: data.cartId }),
       ...(data.conversationHistory !== undefined && {
-        conversationLog: data.conversationHistory as any,
+        conversationLog: JSON.stringify(data.conversationHistory),
       }),
       ...(data.recentProducts !== undefined && {
-        recentProducts: data.recentProducts as any,
+        recentProducts: JSON.stringify(data.recentProducts),
       }),
       ...(data.preferences !== undefined && {
-        preferences: data.preferences as any,
+        preferences: JSON.stringify(data.preferences),
       }),
     },
   });
