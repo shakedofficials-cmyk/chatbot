@@ -26,5 +26,19 @@ if (env.NODE_ENV === "production" && env.CORS_ORIGIN === "*") {
 // Dev mode = no Shopify credentials (use mock products)
 export const usesMockShopify = !env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
 
+if (env.NODE_ENV === "production") {
+  if (!env.SHOPIFY_STOREFRONT_ACCESS_TOKEN) {
+    console.warn(
+      "WARNING: SHOPIFY_STOREFRONT_ACCESS_TOKEN is missing. Product and cart actions will use mock Shopify data."
+    );
+  }
+
+  if (env.SHOPIFY_STORE_DOMAIN === "demo.myshopify.com") {
+    console.warn(
+      "WARNING: SHOPIFY_STORE_DOMAIN is using the demo default. Live Shopify product requests will not target your merchant store."
+    );
+  }
+}
+
 // Which AI backend to use
 export const aiProvider: "openai" | "mock" = env.OPENAI_API_KEY ? "openai" : "mock";

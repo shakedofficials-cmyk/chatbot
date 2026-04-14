@@ -109,6 +109,13 @@ export async function openaiOrchestrate(
           ? await executeMockTool(fnName, fnArgs, sessionId)
           : await executeTool(fnName, fnArgs, sessionId);
       } catch (err) {
+        console.error("[chat] tool execution failed", {
+          sessionId,
+          toolName: fnName,
+          usesMockShopify,
+          args: fnArgs,
+          error: err instanceof Error ? err.message : String(err),
+        });
         result = { content: `Error: ${err instanceof Error ? err.message : "Unknown error"}` };
       }
 
