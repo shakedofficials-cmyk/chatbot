@@ -10,7 +10,7 @@ interface ImportMeta {
 
 interface Window {
   __ORJN_CONFIG__?: {
-    apiUrl: string;
-    shopDomain: string;
+    apiUrl?: string;
+    shopDomain?: string;
   };
 }

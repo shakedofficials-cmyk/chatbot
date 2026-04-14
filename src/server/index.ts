@@ -1,11 +1,17 @@
-import express from "express";
+import express, { type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import compression from "compression";
 import rateLimit from "express-rate-limit";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
 import { env } from "./config.js";
+import { prisma } from "./db/client.js";
 import chatRoutes from "./routes/chat.js";
 import analyticsRoutes from "./routes/analytics.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const app = express();
 
@@ -20,6 +26,9 @@ app.use(
 );
 app.use(express.json({ limit: "100kb" }));
 
+// Serve compiled widget JS from dist/widget/
+app.use(express.static(join(__dirname, "../widget")));
+
 // Rate limiting — 30 chat messages per minute per IP
 const chatLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -27,21 +36,51 @@ const chatLimiter = rateLimit({
   message: { error: "Too many requests. Please slow down." },
 });
 
-// ── Routes ──
-app.use("/api/chat", chatLimiter, chatRoutes);
-app.use("/api/analytics", analyticsRoutes);
-
-// Health check
-app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
+// Rate limiting — 60 analytics events per minute per IP
+const analyticsLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  message: { error: "Too many requests. Please slow down." },
 });
 
-app.get("/", (_req, res) => {
+// ── Routes ──
+app.use("/api/chat", chatLimiter, chatRoutes);
+app.use("/api/analytics", analyticsLimiter, analyticsRoutes);
+
+// Health check — pings DB to catch connection failures
+app.get("/api/health", async (_req: Request, res: Response) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  } catch {
+    res.status(503).json({ status: "error", timestamp: new Date().toISOString() });
+  }
+});
+
+app.get("/", (_req: Request, res: Response) => {
   res.json({ status: "ok" });
+});
+
+// ── Global error handler ──
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  console.error("Unhandled error:", err);
+  res.status(500).json({ error: "Something went wrong. Please try again." });
 });
 
 // ── Start ──
 const PORT = parseInt(process.env.PORT ?? "3001", 10);
-app.listen(PORT, "0.0.0.0", () => {
+const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`ORJN Concierge server running on port ${PORT}`);
 });
+
+// ── Graceful shutdown ──
+async function shutdown(): Promise<void> {
+  server.close(async () => {
+    await prisma.$disconnect();
+    process.exit(0);
+  });
+}
+
+process.on("SIGTERM", () => { void shutdown(); });
+process.on("SIGINT", () => { void shutdown(); });

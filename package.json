@@ -1,6 +1,7 @@
 {
   "name": "orjn-concierge",
   "version": "1.0.0",
+  "type": "module",
   "private": true,
   "description": "AI Shopping Concierge for ORJN Shopify Store",
   "scripts": {

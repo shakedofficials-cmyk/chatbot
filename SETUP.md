@@ -19,7 +19,7 @@ A custom AI chatbot for your Shopify store that:
 ## What You Need
 
 1. **Shopify store** with Storefront API access
-2. **Anthropic API key** (for the AI) — get one at https://console.anthropic.com
+2. **OpenAI API key** (for the AI) — get one at https://platform.openai.com/api-keys
 3. **PostgreSQL database** — any managed PostgreSQL (Supabase, Railway, Neon, or similar)
 4. **A server to host the backend** — Railway, Render, Fly.io, or any Node.js host
 
@@ -38,11 +38,11 @@ A custom AI chatbot for your Shopify store that:
    - `unauthenticated_read_checkouts`
 4. Install the app and copy the **Storefront API access token**
 
-### 2. Get Your Anthropic API Key
+### 2. Get Your OpenAI API Key
 
-1. Go to https://console.anthropic.com
+1. Go to https://platform.openai.com/api-keys
 2. Create an account or sign in
-3. Go to API Keys and create a new key
+3. Create a new secret key
 4. Copy the key — you'll need it for the `.env` file
 
 ### 3. Set Up the Database
@@ -59,7 +59,7 @@ postgresql://user:password@host:5432/database_name
    ```
    SHOPIFY_STORE_DOMAIN=your-store.myshopify.com
    SHOPIFY_STOREFRONT_ACCESS_TOKEN=your-token-here
-   ANTHROPIC_API_KEY=sk-ant-...
+   OPENAI_API_KEY=sk-...
    DATABASE_URL=postgresql://...
    PORT=3001
    NODE_ENV=production
@@ -81,13 +81,13 @@ If using **Render**:
 - Set start command to `npm start`
 - Add environment variables
 
-### 5. Build and Host the Widget
+### 5. Build the Widget
 
 After deploying the backend:
-1. Run `npm run build:widget`
+1. Run `npm run build` (builds both server and widget)
 2. The compiled widget is at `dist/widget/orjn-concierge.js`
-3. Host this file on your server or a CDN
-4. Note the URL (e.g. `https://your-server.com/orjn-concierge.js`)
+3. The server automatically serves it at `https://your-backend-url.com/orjn-concierge.js` — no separate CDN needed
+4. Use that URL as your Widget JS URL in the next step
 
 ### 6. Install on Shopify
 
@@ -151,12 +151,11 @@ These show up automatically in product cards and comparisons.
 |----------|----------|-------------|
 | `SHOPIFY_STORE_DOMAIN` | Yes | Your `.myshopify.com` domain |
 | `SHOPIFY_STOREFRONT_ACCESS_TOKEN` | Yes | Storefront API token |
-| `ANTHROPIC_API_KEY` | Yes | Claude API key |
+| `OPENAI_API_KEY` | Yes | OpenAI API key |
 | `DATABASE_URL` | Yes | PostgreSQL connection string |
-| `REDIS_URL` | No | Redis URL for caching |
 | `PORT` | No | Server port (default: 3001) |
 | `NODE_ENV` | No | `development` or `production` |
-| `CORS_ORIGIN` | No | Allowed origins (default: `*`) |
+| `CORS_ORIGIN` | No | Allowed origins — set to your store domain in production |
 | `VITE_API_URL` | No | API URL for local dev widget |
 
 ---
@@ -183,5 +182,5 @@ Backend runs on `http://localhost:3001`, widget on `http://localhost:5173`.
 - **Widget doesn't appear**: Check that the app embed is enabled in theme customizer
 - **"Network error"**: Check that `CORS_ORIGIN` includes your store domain
 - **No products returned**: Verify your Storefront API token has the correct scopes
-- **AI errors**: Check your Anthropic API key and billing status
+- **AI errors**: Check your OpenAI API key and billing status at https://platform.openai.com/usage
 - **Database errors**: Verify `DATABASE_URL` and run `npm run db:push`

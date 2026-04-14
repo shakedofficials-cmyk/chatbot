@@ -1,12 +1,24 @@
 import { defineConfig } from "vite";
 import path from "path";
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   root: "src/widget",
-  build: {
-    outDir: "../../dist/widget",
-    emptyOutDir: true,
-  },
+  build:
+    command === "build"
+      ? {
+          outDir: "../../dist/widget",
+          emptyOutDir: true,
+          lib: {
+            entry: path.resolve(__dirname, "src/widget/main.ts"),
+            name: "ORJNConcierge",
+            formats: ["iife"],
+            fileName: () => "orjn-concierge.js",
+          },
+        }
+      : {
+          outDir: "../../dist/widget",
+          emptyOutDir: true,
+        },
   envDir: path.resolve(__dirname),
   server: {
     port: 5173,
@@ -17,4 +29,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

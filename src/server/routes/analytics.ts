@@ -5,8 +5,8 @@ import { logEvent } from "../services/analytics/index.js";
 const router = Router();
 
 const eventSchema = z.object({
-  sessionId: z.string().min(1),
-  name: z.string().min(1),
+  sessionId: z.string().min(1).max(128),
+  name: z.string().min(1).max(64),
   payload: z.record(z.unknown()).optional(),
 });
 

@@ -8,12 +8,12 @@
 
 <script>
   window.__ORJN_CONFIG__ = {
-    apiUrl: "{{ block.settings.api_url }}",
-    shopDomain: "{{ shop.domain }}"
+    apiUrl: {{ block.settings.api_url | json }},
+    shopDomain: {{ shop.domain | json }}
   };
 </script>
 
-<script src="{{ block.settings.widget_url }}" defer></script>
+<script src="{{ block.settings.widget_url | escape }}" defer></script>
 
 {% schema %}
 {

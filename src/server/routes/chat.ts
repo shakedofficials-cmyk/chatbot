@@ -11,7 +11,7 @@ import type { ChatMessage } from "../../shared/types.js";
 const router = Router();
 
 const chatRequestSchema = z.object({
-  sessionId: z.string().min(1),
+  sessionId: z.string().min(1).max(128),
   message: z.string().min(1).max(2000),
   cartId: z.string().optional(),
 });
