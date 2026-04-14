@@ -4,6 +4,7 @@
   "private": true,
   "description": "AI Shopping Concierge for ORJN Shopify Store",
   "scripts": {
+    "postinstall": "prisma generate",
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:widget\"",
     "dev:server": "tsx watch src/server/index.ts",
     "dev:widget": "vite",
