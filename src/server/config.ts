@@ -6,6 +6,8 @@ const envSchema = z.object({
   SHOPIFY_STOREFRONT_ACCESS_TOKEN: z.string().default(""),
   ANTHROPIC_API_KEY: z.string().default(""),
   OPENAI_API_KEY: z.string().default(""),
+  ANTHROPIC_MODEL: z.string().default("claude-sonnet-4-20250514"),
+  OPENAI_MODEL: z.string().default("gpt-4o-mini"),
   DATABASE_URL: z.string().default("file:./prisma/dev.db"),
   REDIS_URL: z.string().optional(),
   PORT: z.coerce.number().default(3001),

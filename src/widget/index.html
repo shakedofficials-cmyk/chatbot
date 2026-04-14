@@ -1,42 +1,433 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ORJN Concierge</title>
-    <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      body {
-        background: #f5f5f5;
-        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: #333;
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ORJN Concierge</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #f5f5f5;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #333;
+    }
+    .demo-page { text-align: center; padding: 40px; }
+    .demo-page h1 { font-size: 32px; letter-spacing: 6px; font-weight: 700; margin-bottom: 12px; }
+    .demo-page p { color: #888; font-size: 14px; }
+
+    /* ── Widget ── */
+    #orjn-launcher {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      width: 60px;
+      height: 60px;
+      border-radius: 6px;
+      background: #000;
+      border: 1px solid #333;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2147483647;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.6);
+      transition: transform 0.15s ease;
+    }
+    #orjn-launcher:hover { transform: scale(1.05); }
+
+    #orjn-panel {
+      display: none;
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      width: 400px;
+      height: 600px;
+      max-height: calc(100vh - 48px);
+      background: #0a0a0a;
+      border: 1px solid #2a2a2a;
+      border-radius: 6px;
+      flex-direction: column;
+      z-index: 2147483647;
+      box-shadow: 0 8px 48px rgba(0,0,0,0.7);
+      overflow: hidden;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    }
+    #orjn-panel.open { display: flex; }
+
+    @media (max-width: 480px) {
+      #orjn-panel.open {
+        width: 100vw; height: 100vh; max-height: 100vh;
+        bottom: 0; right: 0; border-radius: 0;
       }
-      .demo-page {
-        text-align: center;
-        padding: 40px;
-      }
-      .demo-page h1 {
-        font-size: 32px;
-        letter-spacing: 6px;
-        font-weight: 700;
-        margin-bottom: 12px;
-      }
-      .demo-page p {
-        color: #888;
-        font-size: 14px;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="demo-page">
-      <h1>ORJN</h1>
-      <p>Click the chat button in the bottom-right corner</p>
+    }
+
+    .orjn-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid #2a2a2a;
+    }
+    .orjn-header h2 {
+      font-size: 14px; font-weight: 600; letter-spacing: 2px;
+      text-transform: uppercase; color: #fff; margin: 0;
+    }
+    .orjn-close {
+      background: none; border: none; color: #999;
+      cursor: pointer; font-size: 18px; padding: 4px; line-height: 1;
+    }
+    .orjn-close:hover { color: #fff; }
+
+    .orjn-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .orjn-empty {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      flex: 1; padding: 40px 20px; text-align: center;
+    }
+    .orjn-empty h3 { font-size: 16px; font-weight: 600; color: #fff; margin-bottom: 8px; }
+    .orjn-empty p { font-size: 13px; color: #999; line-height: 1.5; }
+
+    .orjn-msg { max-width: 85%; font-size: 14px; line-height: 1.6; }
+    .orjn-msg.user {
+      align-self: flex-end;
+      background: #1e1e1e;
+      color: #f0f0f0;
+      padding: 10px 14px;
+      border-radius: 4px;
+    }
+    .orjn-msg.assistant {
+      align-self: flex-start;
+      color: #f0f0f0;
+      padding: 10px 0;
+      max-width: 95%;
+    }
+
+    .orjn-product {
+      background: #141414;
+      border: 1px solid #2a2a2a;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    .orjn-product img {
+      width: 100%; height: 160px; object-fit: cover; display: block;
+    }
+    .orjn-product-info { padding: 12px; }
+    .orjn-product-vendor {
+      font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase;
+      color: #999; margin-bottom: 4px;
+    }
+    .orjn-product-title { font-size: 14px; font-weight: 500; color: #fff; margin-bottom: 6px; }
+    .orjn-product-price { font-size: 14px; font-weight: 600; color: #fff; }
+    .orjn-product-price .compare { font-size: 12px; color: #666; text-decoration: line-through; margin-left: 8px; }
+    .orjn-product-btn {
+      display: block; width: 100%; padding: 10px; background: #fff; color: #0a0a0a;
+      border: none; font-size: 12px; font-weight: 600; letter-spacing: 1px;
+      text-transform: uppercase; cursor: pointer; transition: opacity 0.15s;
+    }
+    .orjn-product-btn:hover { opacity: 0.85; }
+
+    .orjn-comparison { margin-top: 8px; overflow-x: auto; }
+    .orjn-comparison table {
+      width: 100%; border-collapse: collapse; font-size: 12px; color: #f0f0f0;
+      background: #141414; border: 1px solid #2a2a2a; border-radius: 4px;
+    }
+    .orjn-comparison th, .orjn-comparison td {
+      padding: 8px 10px; border-bottom: 1px solid #2a2a2a; text-align: left;
+    }
+    .orjn-comparison th { color: #999; font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    .orjn-checkout-btn {
+      display: block; width: 100%; padding: 12px; background: #fff; color: #0a0a0a;
+      border: none; font-size: 13px; font-weight: 700; letter-spacing: 1.5px;
+      text-transform: uppercase; cursor: pointer; margin-top: 8px; border-radius: 4px;
+      text-decoration: none; text-align: center;
+    }
+
+    .orjn-typing { display: flex; gap: 4px; padding: 10px 0; }
+    .orjn-typing span {
+      width: 6px; height: 6px; border-radius: 50%; background: #999;
+      animation: orjn-pulse 1.2s ease-in-out infinite;
+    }
+    .orjn-typing span:nth-child(2) { animation-delay: 0.15s; }
+    .orjn-typing span:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes orjn-pulse { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
+
+    .orjn-error {
+      padding: 10px 16px; background: rgba(255,68,68,0.1);
+      border-top: 1px solid rgba(255,68,68,0.2);
+      color: #ff4444; font-size: 13px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .orjn-error button {
+      background: none; border: 1px solid #ff4444; color: #ff4444;
+      padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;
+    }
+
+    .orjn-input-area {
+      display: flex; align-items: center; padding: 12px 16px;
+      border-top: 1px solid #2a2a2a; background: #0a0a0a; gap: 8px;
+    }
+    .orjn-input-area textarea {
+      flex: 1; background: #141414; border: 1px solid #2a2a2a;
+      border-radius: 4px; padding: 10px 14px; color: #f0f0f0;
+      font-size: 14px; font-family: inherit; outline: none; resize: none;
+    }
+    .orjn-input-area button {
+      background: #fff; color: #0a0a0a; border: none; border-radius: 4px;
+      width: 36px; height: 36px; display: flex; align-items: center;
+      justify-content: center; cursor: pointer; font-size: 16px; flex-shrink: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="demo-page">
+    <h1>ORJN</h1>
+    <p>Click the chat button in the bottom-right corner</p>
+  </div>
+
+  <!-- Launcher Button -->
+  <button id="orjn-launcher" onclick="openChat()">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+    </svg>
+  </button>
+
+  <!-- Chat Panel -->
+  <div id="orjn-panel">
+    <div class="orjn-header">
+      <h2>ORJN</h2>
+      <button class="orjn-close" onclick="closeChat()">&times;</button>
     </div>
-    <div id="orjn-concierge-root"></div>
-    <script type="module" src="./main.tsx"></script>
-  </body>
+    <div class="orjn-messages" id="orjn-messages">
+      <div class="orjn-empty" id="orjn-empty">
+        <h3>How can I help?</h3>
+        <p>Search products, check sizes, compare options, or ask about our policies.</p>
+      </div>
+    </div>
+    <div id="orjn-error" style="display:none" class="orjn-error">
+      <span id="orjn-error-text"></span>
+      <button onclick="retryLast()">Retry</button>
+    </div>
+    <div class="orjn-input-area">
+      <textarea id="orjn-input" placeholder="Ask about products, sizes, or policies..." rows="1"></textarea>
+      <button id="orjn-send" onclick="sendMsg()">&#x2191;</button>
+    </div>
+  </div>
+
+  <script>
+    // ── State ──
+    const sessionId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    let cartId = null;
+    let lastMessage = "";
+    let isLoading = false;
+
+    const $launcher = document.getElementById("orjn-launcher");
+    const $panel = document.getElementById("orjn-panel");
+    const $messages = document.getElementById("orjn-messages");
+    const $empty = document.getElementById("orjn-empty");
+    const $input = document.getElementById("orjn-input");
+    const $send = document.getElementById("orjn-send");
+    const $error = document.getElementById("orjn-error");
+    const $errorText = document.getElementById("orjn-error-text");
+
+    // ── Open / Close ──
+    function openChat() {
+      $launcher.style.display = "none";
+      $panel.classList.add("open");
+      $input.focus();
+    }
+
+    function closeChat() {
+      $panel.classList.remove("open");
+      $launcher.style.display = "flex";
+    }
+
+    // ── Send message ──
+    $input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendMsg();
+      }
+    });
+
+    async function sendMsg() {
+      const text = $input.value.trim();
+      if (!text || isLoading) return;
+
+      lastMessage = text;
+      $input.value = "";
+      hideError();
+
+      // Hide empty state
+      if ($empty) $empty.style.display = "none";
+
+      // Add user message
+      appendMessage("user", text);
+
+      // Show typing
+      const typing = showTyping();
+
+      isLoading = true;
+      $send.style.opacity = "0.4";
+
+      try {
+        const body = { sessionId, message: text };
+        if (cartId) body.cartId = cartId;
+
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: "Network error" }));
+          throw new Error(err.error || "Failed to send message");
+        }
+
+        const data = await res.json();
+
+        if (data.cartId) cartId = data.cartId;
+
+        // Remove typing indicator
+        typing.remove();
+
+        // Add assistant reply
+        const msg = data.message;
+        appendMessage("assistant", msg.content, msg.products, msg.comparison, msg.cartAction);
+
+      } catch (err) {
+        typing.remove();
+        showError(err.message || "Something went wrong");
+      } finally {
+        isLoading = false;
+        $send.style.opacity = "1";
+      }
+    }
+
+    // ── Retry ──
+    function retryLast() {
+      if (!lastMessage) return;
+      // Remove last user message
+      const msgs = $messages.querySelectorAll(".orjn-msg");
+      if (msgs.length) msgs[msgs.length - 1].remove();
+      hideError();
+      $input.value = lastMessage;
+      sendMsg();
+    }
+
+    // ── Render helpers ──
+    function appendMessage(role, text, products, comparison, cartAction) {
+      const div = document.createElement("div");
+      div.className = `orjn-msg ${role}`;
+      div.textContent = text;
+      $messages.appendChild(div);
+
+      if (products && products.length > 0) {
+        products.slice(0, 4).forEach((p) => {
+          $messages.appendChild(renderProduct(p));
+        });
+      }
+
+      if (comparison) {
+        $messages.appendChild(renderComparison(comparison));
+      }
+
+      if (cartAction && cartAction.type === "checkout" && cartAction.checkoutUrl) {
+        const a = document.createElement("a");
+        a.href = cartAction.checkoutUrl;
+        a.target = "_blank";
+        a.className = "orjn-checkout-btn";
+        a.textContent = "PROCEED TO CHECKOUT";
+        $messages.appendChild(a);
+      }
+
+      scrollToBottom();
+    }
+
+    function renderProduct(p) {
+      const card = document.createElement("div");
+      card.className = "orjn-product";
+
+      const img = p.images && p.images[0];
+      const price = p.priceRange?.minVariantPrice;
+      const compareAt = p.variants?.[0]?.compareAtPrice;
+
+      card.innerHTML = `
+        ${img ? `<img src="${img.url}" alt="${img.altText || p.title}" loading="lazy" />` : ""}
+        <div class="orjn-product-info">
+          <div class="orjn-product-vendor">${p.vendor || ""}</div>
+          <div class="orjn-product-title">${p.title}</div>
+          <div class="orjn-product-price">
+            ${price ? `${price.amount} ${price.currencyCode}` : ""}
+            ${compareAt ? `<span class="compare">${compareAt.amount} ${compareAt.currencyCode}</span>` : ""}
+          </div>
+        </div>
+        <button class="orjn-product-btn" onclick="addToCart('${p.title.replace(/'/g, "\\'")}')">View &amp; Add to Cart</button>
+      `;
+      return card;
+    }
+
+    function renderComparison(comp) {
+      const products = comp.products || [];
+      if (products.length < 2) return document.createDocumentFragment();
+
+      const wrapper = document.createElement("div");
+      wrapper.className = "orjn-comparison";
+
+      const headers = products.map((p) => `<th>${p.title}</th>`).join("");
+      const row = (label, fn) =>
+        `<tr><td style="color:#999;font-weight:500">${label}</td>${products.map(fn).join("")}</tr>`;
+
+      wrapper.innerHTML = `<table>
+        <tr><th></th>${headers}</tr>
+        ${row("Brand", (p) => `<td>${p.vendor || "-"}</td>`)}
+        ${row("Price", (p) => `<td>${p.priceRange?.minVariantPrice?.amount || "-"} ${p.priceRange?.minVariantPrice?.currencyCode || ""}</td>`)}
+        ${row("Type", (p) => `<td>${p.productType || "-"}</td>`)}
+        ${row("Material", (p) => `<td>${p.metafields?.materialSummary || "-"}</td>`)}
+      </table>`;
+      return wrapper;
+    }
+
+    function addToCart(title) {
+      $input.value = `I want to add ${title} to my cart`;
+      sendMsg();
+    }
+
+    function showTyping() {
+      const div = document.createElement("div");
+      div.className = "orjn-typing";
+      div.innerHTML = "<span></span><span></span><span></span>";
+      $messages.appendChild(div);
+      scrollToBottom();
+      return div;
+    }
+
+    function showError(msg) {
+      $errorText.textContent = msg;
+      $error.style.display = "flex";
+    }
+
+    function hideError() {
+      $error.style.display = "none";
+    }
+
+    function scrollToBottom() {
+      $messages.scrollTop = $messages.scrollHeight;
+    }
+  </script>
+</body>
 </html>

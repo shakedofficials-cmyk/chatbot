@@ -72,7 +72,7 @@ export async function orchestrate(
 
   // Tool-use loop — keep calling until we get a final text response
   let response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: env.ANTHROPIC_MODEL,
     max_tokens: 1024,
     system: SYSTEM_PROMPT,
     tools: AI_TOOLS,
@@ -135,7 +135,7 @@ export async function orchestrate(
     messages.push({ role: "user", content: toolResults });
 
     response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: env.ANTHROPIC_MODEL,
       max_tokens: 1024,
       system: SYSTEM_PROMPT,
       tools: AI_TOOLS,

@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(taskkill //PID 13324 //F)",
+      "Bash(findstr \":5173\\\\|:5174\")",
+      "Bash(findstr \"LISTENING\")",
+      "Bash(findstr \":3001\\\\|:5173\\\\|:5174\\\\|:5175\")",
+      "Bash(taskkill //PID 27188 //F)",
+      "Bash(taskkill //PID 36244 //F)",
+      "Bash(taskkill //PID 34712 //F)",
+      "Bash(taskkill //PID 12664 //F)",
+      "Bash(taskkill //PID 21548 //F)",
+      "Bash(taskkill //PID 20644 //F)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\user\\Documents\\GitHub\\chatbot\\src\\widget"
+    ]
+  }
+}

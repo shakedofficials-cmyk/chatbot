@@ -2,8 +2,9 @@ import OpenAI from "openai";
 import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
 import { env } from "../../config.js";
 import type { Product, ProductComparison, CartAction } from "../../../shared/types.js";
+import { executeTool, type ToolResult } from "./tool-executor.js";
 import { executeMockTool } from "./mock-tool-executor.js";
-import type { ToolResult } from "./tool-executor.js";
+import { usesMockShopify } from "../../config.js";
 
 const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
 
@@ -77,6 +78,21 @@ const OPENAI_TOOLS: ChatCompletionTool[] = [
           selected_options: { type: "object", description: "e.g. { \"Size\": \"43\" }", additionalProperties: { type: "string" } },
         },
         required: ["handle_or_id", "selected_options"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_variant_availability",
+      description: "Check availability and stock for a specific variant.",
+      parameters: {
+        type: "object",
+        properties: {
+          variant_id: { type: "string", description: "Variant GID" },
+          handle_or_id: { type: "string", description: "Product handle (fallback lookup)" },
+        },
+        required: ["variant_id"],
       },
     },
   },
@@ -170,6 +186,21 @@ const OPENAI_TOOLS: ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "log_event",
+      description: "Log an analytics event for tracking user behavior.",
+      parameters: {
+        type: "object",
+        properties: {
+          event_name: { type: "string", description: "Event name" },
+          payload: { type: "object", description: "Event data", additionalProperties: true },
+        },
+        required: ["event_name"],
+      },
+    },
+  },
 ];
 
 interface OrchestratorResult {
@@ -211,7 +242,7 @@ export async function openaiOrchestrate(
 
   // Tool-use loop
   let response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: env.OPENAI_MODEL,
     max_tokens: 1024,
     messages,
     tools: OPENAI_TOOLS,
@@ -237,7 +268,9 @@ export async function openaiOrchestrate(
 
       let result: ToolResult;
       try {
-        result = await executeMockTool(fnName, fnArgs, sessionId);
+        result = usesMockShopify
+          ? await executeMockTool(fnName, fnArgs, sessionId)
+          : await executeTool(fnName, fnArgs, sessionId);
       } catch (err) {
         result = { content: `Error: ${err instanceof Error ? err.message : "Unknown error"}` };
       }
@@ -266,7 +299,7 @@ export async function openaiOrchestrate(
 
     // Continue the conversation
     response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: env.OPENAI_MODEL,
       max_tokens: 1024,
       messages,
       tools: OPENAI_TOOLS,
