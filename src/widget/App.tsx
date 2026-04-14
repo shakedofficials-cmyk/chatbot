@@ -5,7 +5,10 @@ import { ChatMessageBubble } from "./components/ChatMessage";
 import { TypingIndicator } from "./components/TypingIndicator";
 import { styles, colors } from "./styles";
 import type { Product } from "../shared/types";
-import { nanoid } from "nanoid";
+
+function makeId() {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
 
 export function App() {
   const [isOpen, setIsOpen] = useState(false);
@@ -13,7 +16,7 @@ export function App() {
   const { messages, isLoading, error, cartId, send, retry, clearError } = useChat();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const sessionIdRef = useRef(nanoid());
+  const sessionIdRef = useRef(makeId());
 
   // Detect mobile
   const [isMobile, setIsMobile] = useState(window.innerWidth < 480);
@@ -57,7 +60,6 @@ export function App() {
 
   const handleAddToCart = useCallback(
     (product: Product) => {
-      // Send a message asking to add this product — the AI will resolve variants
       send(`I want to add ${product.title} to my cart`);
       trackEvent(sessionIdRef.current, "product_clicked", { handle: product.handle });
     },
@@ -68,17 +70,26 @@ export function App() {
   if (!isOpen) {
     return (
       <button
-        style={styles.launcher}
         onClick={handleOpen}
-        onMouseOver={(e) => {
-          (e.currentTarget as HTMLElement).style.transform = "scale(1.05)";
-        }}
-        onMouseOut={(e) => {
-          (e.currentTarget as HTMLElement).style.transform = "scale(1)";
-        }}
         aria-label="Open ORJN concierge"
+        style={{
+          position: "fixed",
+          bottom: 24,
+          right: 24,
+          width: 60,
+          height: 60,
+          borderRadius: 6,
+          backgroundColor: "#000",
+          border: "1px solid #333",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 2147483647,
+          boxShadow: "0 4px 24px rgba(0,0,0,0.6)",
+        }}
       >
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={colors.white} strokeWidth="2">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
         </svg>
       </button>
@@ -92,7 +103,7 @@ export function App() {
       <div style={styles.header}>
         <h1 style={styles.headerTitle}>ORJN</h1>
         <button style={styles.headerClose} onClick={() => setIsOpen(false)} aria-label="Close">
-          ✕
+          &#x2715;
         </button>
       </div>
 
@@ -147,7 +158,7 @@ export function App() {
           disabled={!inputValue.trim() || isLoading}
           aria-label="Send message"
         >
-          ↑
+          &#x2191;
         </button>
       </div>
     </div>

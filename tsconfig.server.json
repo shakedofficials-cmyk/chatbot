@@ -11,12 +11,7 @@
     "resolveJsonModule": true,
     "outDir": "dist/server",
     "rootDir": "src/server",
-    "declaration": true,
-    "baseUrl": ".",
-    "paths": {
-      "@server/*": ["src/server/*"],
-      "@shared/*": ["src/shared/*"]
-    }
+    "declaration": true
   },
   "include": ["src/server", "src/shared"],
   "exclude": ["node_modules"]

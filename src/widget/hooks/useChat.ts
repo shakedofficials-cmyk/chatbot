@@ -1,7 +1,10 @@
 import { useState, useCallback, useRef } from "react";
 import type { ChatMessage } from "../../shared/types";
 import { sendMessage, trackEvent } from "../api";
-import { nanoid } from "nanoid";
+
+function makeId() {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
 
 interface UseChatReturn {
   messages: ChatMessage[];
@@ -18,12 +21,12 @@ export function useChat(): UseChatReturn {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cartId, setCartId] = useState<string | null>(null);
-  const sessionIdRef = useRef(nanoid());
+  const sessionIdRef = useRef(makeId());
   const lastMessageRef = useRef<string>("");
 
   const send = useCallback(async (text: string) => {
     const userMsg: ChatMessage = {
-      id: nanoid(),
+      id: makeId(),
       role: "user",
       content: text,
       timestamp: Date.now(),
@@ -50,7 +53,6 @@ export function useChat(): UseChatReturn {
 
   const retry = useCallback(async () => {
     if (lastMessageRef.current) {
-      // Remove the last user message to avoid duplication
       setMessages((prev) => prev.slice(0, -1));
       await send(lastMessageRef.current);
     }
