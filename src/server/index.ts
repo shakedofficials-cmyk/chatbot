@@ -1,4 +1,4 @@
-import express, { type Request, type Response, type NextFunction } from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import compression from "compression";
@@ -14,9 +14,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
+const widgetDistDir = join(__dirname, "../widget");
+const widgetBundlePath = join(widgetDistDir, "orjn-concierge.js");
 
-// ── Middleware ──
-app.use(helmet());
+// Middleware
+app.use(
+  helmet({
+    // Shopify storefront pages load the widget from a different origin.
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  })
+);
 app.use(compression());
 app.use(
   cors({
@@ -26,28 +33,44 @@ app.use(
 );
 app.use(express.json({ limit: "100kb" }));
 
-// Serve compiled widget JS from dist/widget/
-app.use(express.static(join(__dirname, "../widget")));
+// Serve the widget bundle with headers that allow Shopify storefronts to load it cross-origin.
+app.get("/orjn-concierge.js", (_req: Request, res: Response) => {
+  res.type("application/javascript; charset=utf-8");
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  res.sendFile(widgetBundlePath);
+});
 
-// Rate limiting — 30 chat messages per minute per IP
+// Serve any additional widget assets from dist/widget/
+app.use(
+  express.static(widgetDistDir, {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith(".js")) {
+        res.type("application/javascript; charset=utf-8");
+        res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+      }
+    },
+  })
+);
+
+// Rate limiting - 30 chat messages per minute per IP
 const chatLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 30,
   message: { error: "Too many requests. Please slow down." },
 });
 
-// Rate limiting — 60 analytics events per minute per IP
+// Rate limiting - 60 analytics events per minute per IP
 const analyticsLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
   message: { error: "Too many requests. Please slow down." },
 });
 
-// ── Routes ──
+// Routes
 app.use("/api/chat", chatLimiter, chatRoutes);
 app.use("/api/analytics", analyticsLimiter, analyticsRoutes);
 
-// Health check — pings DB to catch connection failures
+// Health check - pings DB to catch connection failures
 app.get("/api/health", async (_req: Request, res: Response) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -61,20 +84,20 @@ app.get("/", (_req: Request, res: Response) => {
   res.json({ status: "ok" });
 });
 
-// ── Global error handler ──
+// Global error handler
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   console.error("Unhandled error:", err);
   res.status(500).json({ error: "Something went wrong. Please try again." });
 });
 
-// ── Start ──
+// Start
 const PORT = parseInt(process.env.PORT ?? "3001", 10);
 const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`ORJN Concierge server running on port ${PORT}`);
 });
 
-// ── Graceful shutdown ──
+// Graceful shutdown
 async function shutdown(): Promise<void> {
   server.close(async () => {
     await prisma.$disconnect();
@@ -82,5 +105,9 @@ async function shutdown(): Promise<void> {
   });
 }
 
-process.on("SIGTERM", () => { void shutdown(); });
-process.on("SIGINT", () => { void shutdown(); });
+process.on("SIGTERM", () => {
+  void shutdown();
+});
+process.on("SIGINT", () => {
+  void shutdown();
+});
