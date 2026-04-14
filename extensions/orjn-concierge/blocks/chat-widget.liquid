@@ -1,0 +1,41 @@
+{% comment %}
+  ORJN Concierge — App Embed Block
+  This loads the chatbot widget into the storefront.
+  Activate it via: Online Store → Themes → Customize → App embeds
+{% endcomment %}
+
+<div id="orjn-concierge-root"></div>
+
+<script>
+  window.__ORJN_CONFIG__ = {
+    apiUrl: "{{ block.settings.api_url }}",
+    shopDomain: "{{ shop.domain }}"
+  };
+</script>
+
+<script src="{{ block.settings.widget_url }}" defer></script>
+
+{% schema %}
+{
+  "name": "ORJN Concierge",
+  "target": "body",
+  "javascript": "",
+  "stylesheet": "",
+  "settings": [
+    {
+      "type": "text",
+      "id": "api_url",
+      "label": "API URL",
+      "info": "The URL of your ORJN Concierge backend (e.g. https://your-server.com)",
+      "default": "https://your-concierge-server.com"
+    },
+    {
+      "type": "text",
+      "id": "widget_url",
+      "label": "Widget JS URL",
+      "info": "The URL of the compiled widget JavaScript file",
+      "default": "https://your-concierge-server.com/orjn-concierge.js"
+    }
+  ]
+}
+{% endschema %}
