@@ -149,7 +149,11 @@ export async function orchestrate(
     messages.push({ role: "user", content: toolResults });
 
     response = await anthropic.messages.create({
+<<<<<<< HEAD
       model: env.ANTHROPIC_MODEL,
+=======
+      model: "claude-sonnet-4-6",
+>>>>>>> 8c0fb46 (Fix OpenAI orchestrator using mock tools in production and update Anthropic model ID)
       max_tokens: 1024,
       system: SYSTEM_PROMPT,
       tools: AI_TOOLS,
