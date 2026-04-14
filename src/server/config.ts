@@ -6,6 +6,7 @@ const envSchema = z.object({
   SHOPIFY_STOREFRONT_ACCESS_TOKEN: z.string().default(""),
   OPENAI_API_KEY: z.string().default(""),
   OPENAI_MODEL: z.string().default("gpt-4o"),
+  OPENAI_EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),
   DATABASE_URL: z
     .string()
     .default("postgresql://postgres:postgres@localhost:5432/orjn_concierge?schema=public"),
@@ -14,6 +15,7 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   CORS_ORIGIN: z.string().default("*"),
   SYNC_SECRET: z.string().optional(),
+  RETRIEVAL_DEBUG_SECRET: z.string().optional(),
   SYNC_INTERVAL_MINUTES: z.coerce.number().default(15),
 });
 

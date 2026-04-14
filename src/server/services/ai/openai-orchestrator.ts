@@ -4,7 +4,8 @@ import { AI_TOOLS } from "./tools.js";
 import { executeTool, type ToolResult } from "./tool-executor.js";
 import { executeMockTool } from "./mock-tool-executor.js";
 import { usesMockShopify } from "../../config.js";
-import type { Product, ProductComparison, CartAction } from "../../../shared/types.js";
+import * as dbProducts from "../products/db-products.js";
+import type { Product, ProductComparison, CartAction, ShopperPreferences } from "../../../shared/types.js";
 
 const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
 
@@ -32,12 +33,16 @@ PERSONALITY:
 - Push toward a purchase naturally — like a good salesperson, not a script
 
 RULES (non-negotiable):
-- NEVER invent or guess product data, prices, stock, sizes, or availability. Always use tools to get live data.
-- When someone asks about products, ALWAYS use search_products or get_product tools first.
-- For specific sizes/colors, use get_variant_by_options to resolve the exact variant.
-- Never say "should be available" or guess stock — use real variant data.
-- For policy questions (shipping, returns, authenticity, sizing, care, support), use answer_policy_question.
+- NEVER invent or guess product data, prices, stock, sizes, or availability. Always use catalog tools first.
+- All product answers must be grounded in the synced ORJN catalog returned by tools. Do not answer from memory.
+- When someone asks about products, ALWAYS use search_products or get_product first.
+- For product availability by size, use get_size_availability when possible.
+- For specific size/color combinations on a known product, use get_variant_by_options to resolve the exact variant.
+- If the user says "this", "that one", "the first one", "the second one", "it", or follows up on products shown earlier, use the recent product context provided in the latest user message.
+- Never say "should be available" or guess stock — use grounded variant or size availability data.
+- For policy questions (shipping, returns, authenticity, sizing, care, support), use get_policy.
 - When comparing products, use compare_products.
+- When the user wants similar alternatives, use find_similar_products.
 - When adding to cart, first resolve the exact variant, then use cart_create (if needed) and cart_add_lines.
 - If you're not sure what they want, ask ONE short question — don't guess.
 - Log relevant analytics events using log_event.
@@ -57,15 +62,62 @@ interface OrchestratorResult {
   cartId: string | null;
 }
 
+interface OrchestratorContext {
+  recentProductHandles?: string[];
+  preferences?: Record<string, unknown>;
+}
+
+function formatRecentProductContext(products: Product[]): string {
+  if (products.length === 0) return "";
+
+  return products
+    .map((product, index) => {
+      const availableSizes = product.variants
+        .filter((variant) => variant.availableForSale)
+        .flatMap((variant) =>
+          variant.selectedOptions
+            .filter((option) => option.name.toLowerCase() === "size")
+            .map((option) => option.value)
+        )
+        .filter((value, valueIndex, all) => all.indexOf(value) === valueIndex)
+        .slice(0, 8);
+
+      return `${index + 1}. ${product.title} | handle=${product.handle} | brand=${product.vendor} | type=${product.productType} | price=${product.priceRange.minVariantPrice.amount} ${product.priceRange.minVariantPrice.currencyCode} | sizes=${availableSizes.join(", ") || "unknown"}`;
+    })
+    .join("\n");
+}
+
+function formatPreferenceContext(preferences: Record<string, unknown> | undefined): string {
+  if (!preferences) return "";
+
+  const known = preferences as ShopperPreferences;
+  const lines = [
+    known.favoriteBrand ? `favorite_brand=${known.favoriteBrand}` : null,
+    known.preferredSize ? `preferred_size=${known.preferredSize}` : null,
+    known.preferredCategory ? `preferred_category=${known.preferredCategory}` : null,
+    known.preferredColor ? `preferred_color=${known.preferredColor}` : null,
+    known.lastIntent ? `last_intent=${known.lastIntent}` : null,
+  ].filter(Boolean);
+
+  return lines.length > 0 ? lines.join("\n") : "";
+}
+
 export async function openaiOrchestrate(
   userMessage: string,
   conversationHistory: { role: string; content: string }[],
   sessionId: string,
-  cartId: string | null
+  cartId: string | null,
+  context: OrchestratorContext = {}
 ): Promise<OrchestratorResult> {
+  const recentProducts = context.recentProductHandles?.length
+    ? await dbProducts.getProductsByHandles(context.recentProductHandles.slice(-4))
+    : [];
+  const recentProductContext = formatRecentProductContext(recentProducts);
+  const preferenceContext = formatPreferenceContext(context.preferences);
+
   const userContent = cartId
-    ? `[Current cart ID: ${cartId}]\n\n${userMessage}`
-    : userMessage;
+    ? `[Current cart ID: ${cartId}]\n${recentProductContext ? `\n[Recent product context]\n${recentProductContext}` : ""}${preferenceContext ? `\n[Shopper preferences]\n${preferenceContext}` : ""}\n\n${userMessage}`
+    : `${recentProductContext ? `[Recent product context]\n${recentProductContext}\n\n` : ""}${preferenceContext ? `[Shopper preferences]\n${preferenceContext}\n\n` : ""}${userMessage}`;
 
   const input = [
     ...conversationHistory.map((msg) => ({
@@ -106,8 +158,8 @@ export async function openaiOrchestrate(
       let result: ToolResult;
       try {
         result = usesMockShopify
-          ? await executeMockTool(fnName, fnArgs, sessionId)
-          : await executeTool(fnName, fnArgs, sessionId);
+          ? await executeMockTool(fnName, fnArgs, sessionId, context)
+          : await executeTool(fnName, fnArgs, sessionId, context);
       } catch (err) {
         console.error("[chat] tool execution failed", {
           sessionId,

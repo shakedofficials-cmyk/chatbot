@@ -98,12 +98,64 @@ export interface CartCost {
 
 export interface SearchFilters {
   brand?: string;
+  model?: string;
+  silhouette?: string;
   minPrice?: number;
   maxPrice?: number;
   category?: string;
   color?: string;
+  size?: string;
   productType?: string;
   inStock?: boolean;
+}
+
+export type QueryIntent =
+  | "product_search"
+  | "availability_check"
+  | "size_lookup"
+  | "recommendations"
+  | "comparison"
+  | "policy_support"
+  | "authenticity"
+  | "general_chat";
+
+export interface QueryUnderstanding {
+  normalizedQuery: string;
+  intent: QueryIntent;
+  filters: SearchFilters;
+  entities: {
+    brand?: string;
+    model?: string;
+    silhouette?: string;
+    size?: string;
+    color?: string;
+    category?: string;
+    styleTerms: string[];
+    rawTerms: string[];
+  };
+}
+
+export interface RetrievedProduct {
+  product: Product;
+  lexicalScore: number;
+  semanticScore: number;
+  rerankScore: number;
+  reasoning: string[];
+}
+
+export interface HybridSearchResult {
+  understanding: QueryUnderstanding;
+  lexicalCandidates: { productId: string; score: number }[];
+  semanticCandidates: { productId: string; score: number }[];
+  results: RetrievedProduct[];
+}
+
+export interface ShopperPreferences {
+  favoriteBrand?: string;
+  preferredSize?: string;
+  preferredCategory?: string;
+  preferredColor?: string;
+  lastIntent?: QueryIntent;
 }
 
 // ── Comparison types ──

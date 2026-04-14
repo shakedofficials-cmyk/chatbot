@@ -9,6 +9,7 @@ A complete setup guide for a non-technical store owner.
 A custom AI chatbot for your Shopify store that:
 - Recommends products based on what customers ask for
 - Shows live prices, sizes, and stock
+- Grounds product answers in a synced searchable catalog
 - Compares products side by side
 - Adds items to cart directly from the chat
 - Sends customers to checkout
@@ -60,19 +61,24 @@ postgresql://user:password@host:5432/database_name
    SHOPIFY_STORE_DOMAIN=your-store.myshopify.com
    SHOPIFY_STOREFRONT_ACCESS_TOKEN=your-token-here
    OPENAI_API_KEY=sk-...
+   OPENAI_EMBEDDING_MODEL=text-embedding-3-small
    DATABASE_URL=postgresql://...
    PORT=3001
    NODE_ENV=production
    CORS_ORIGIN=https://your-store.myshopify.com
+   SYNC_INTERVAL_MINUTES=15
+   SYNC_SECRET=your-sync-secret
+   RETRIEVAL_DEBUG_SECRET=your-debug-secret
    ```
 3. Install dependencies: `npm install`
-4. Set up the database: `npm run db:push`
+4. Apply database migrations: `npx prisma migrate deploy`
 5. Build: `npm run build`
 6. Start: `npm start`
 
 If using **Railway**:
 - Connect your GitHub repo
 - Add the environment variables above
+- Make sure the startup command stays `npm start` so `prisma migrate deploy` runs before the server boots
 - Railway auto-detects Node.js and deploys
 
 If using **Render**:
@@ -152,11 +158,57 @@ These show up automatically in product cards and comparisons.
 | `SHOPIFY_STORE_DOMAIN` | Yes | Your `.myshopify.com` domain |
 | `SHOPIFY_STOREFRONT_ACCESS_TOKEN` | Yes | Storefront API token |
 | `OPENAI_API_KEY` | Yes | OpenAI API key |
+| `OPENAI_EMBEDDING_MODEL` | No | Embedding model for semantic retrieval; defaults to `text-embedding-3-small` |
 | `DATABASE_URL` | Yes | PostgreSQL connection string |
 | `PORT` | No | Server port (default: 3001) |
 | `NODE_ENV` | No | `development` or `production` |
 | `CORS_ORIGIN` | No | Allowed origins — set to your store domain in production |
+| `SYNC_INTERVAL_MINUTES` | No | Catalog resync interval in minutes; defaults to `15` |
+| `SYNC_SECRET` | No | Secret for `POST /api/sync` manual sync requests |
+| `RETRIEVAL_DEBUG_SECRET` | No | Secret for `POST /api/retrieval/debug`; falls back to `SYNC_SECRET` if omitted |
 | `VITE_API_URL` | No | API URL for local dev widget |
+
+---
+
+## Hybrid Retrieval Notes
+
+The live chatbot now answers product questions from the synced Postgres catalog, not from direct Shopify product fetches on every chat turn.
+
+- Shopify remains the source of truth
+- the app syncs products into Postgres on startup and every `SYNC_INTERVAL_MINUTES`
+- lexical retrieval runs from normalized catalog fields in Postgres
+- semantic retrieval uses embeddings stored in the catalog index
+- size and availability answers are grounded in synced variant data
+
+This means production deploys must apply Prisma migrations before serving traffic.
+
+---
+
+## Retrieval Debug Endpoint
+
+For tuning search quality, the backend exposes a protected debug endpoint:
+
+`POST /api/retrieval/debug`
+
+Headers:
+- `x-debug-secret: <RETRIEVAL_DEBUG_SECRET>`
+
+Minimal payload:
+```json
+{
+  "query": "do you have dunks size 44",
+  "limit": 5
+}
+```
+
+Response includes:
+- query understanding
+- extracted filters/entities
+- lexical candidates
+- semantic candidates
+- reranked final results
+
+Use this to inspect why a query retrieved the products it did before adjusting synonyms, ranking, or catalog metadata.
 
 ---
 
@@ -166,8 +218,8 @@ These show up automatically in product cards and comparisons.
 # Install dependencies
 npm install
 
-# Set up database
-npm run db:push
+# Apply migrations
+npx prisma migrate deploy
 
 # Start dev server (backend + widget hot reload)
 npm run dev
@@ -182,5 +234,7 @@ Backend runs on `http://localhost:3001`, widget on `http://localhost:5173`.
 - **Widget doesn't appear**: Check that the app embed is enabled in theme customizer
 - **"Network error"**: Check that `CORS_ORIGIN` includes your store domain
 - **No products returned**: Verify your Storefront API token has the correct scopes
+- **Hybrid retrieval errors after deploy**: Make sure the latest Prisma migration ran successfully before the server starts
+- **Unexpected ranking results**: Use `POST /api/retrieval/debug` with your debug secret to inspect lexical and semantic candidates
 - **AI errors**: Check your OpenAI API key and billing status at https://platform.openai.com/usage
-- **Database errors**: Verify `DATABASE_URL` and run `npm run db:push`
+- **Database errors**: Verify `DATABASE_URL` and run `npx prisma migrate deploy`

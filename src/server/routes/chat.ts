@@ -6,7 +6,8 @@ import { devOrchestrate } from "../services/ai/dev-orchestrator.js";
 import { getOrCreateSession, updateSession, trimHistory } from "../services/session/index.js";
 import { logEvent } from "../services/analytics/index.js";
 import { aiProvider } from "../config.js";
-import type { ChatMessage } from "../../shared/types.js";
+import { understandCatalogQuery } from "../services/retrieval/query-understanding.js";
+import type { ChatMessage, ShopperPreferences } from "../../shared/types.js";
 
 const router = Router();
 
@@ -18,6 +19,20 @@ const chatRequestSchema = z.object({
 
 function pickOrchestrator() {
   return aiProvider === "openai" ? openaiOrchestrate : devOrchestrate;
+}
+
+function mergePreferences(
+  existing: Record<string, unknown>,
+  inferred: ShopperPreferences
+): Record<string, unknown> {
+  return {
+    ...existing,
+    ...(inferred.favoriteBrand ? { favoriteBrand: inferred.favoriteBrand } : {}),
+    ...(inferred.preferredSize ? { preferredSize: inferred.preferredSize } : {}),
+    ...(inferred.preferredCategory ? { preferredCategory: inferred.preferredCategory } : {}),
+    ...(inferred.preferredColor ? { preferredColor: inferred.preferredColor } : {}),
+    ...(inferred.lastIntent ? { lastIntent: inferred.lastIntent } : {}),
+  };
 }
 
 router.post("/", async (req: Request, res: Response) => {
@@ -38,11 +53,16 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     const runOrchestrate = pickOrchestrator();
+    const understanding = await understandCatalogQuery(message);
     const result = await runOrchestrate(
       message,
       trimHistory(session.conversationHistory),
       sessionId,
-      cartId
+      cartId,
+      {
+        recentProductHandles: session.recentProducts.slice(-4),
+        preferences: session.preferences,
+      }
     );
 
     const responseMessage: ChatMessage = {
@@ -70,6 +90,13 @@ router.post("/", async (req: Request, res: Response) => {
           ...result.products.map((p) => p.handle),
         ]),
       ].slice(-20),
+      preferences: mergePreferences(session.preferences, {
+        favoriteBrand: understanding.filters.brand,
+        preferredSize: understanding.filters.size,
+        preferredCategory: understanding.filters.category ?? understanding.filters.productType,
+        preferredColor: understanding.filters.color,
+        lastIntent: understanding.intent,
+      }),
     });
 
     res.json({

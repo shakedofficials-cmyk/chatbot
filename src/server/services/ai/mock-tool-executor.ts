@@ -11,7 +11,11 @@ const mockCarts = new Map<string, Cart>();
 export async function executeMockTool(
   toolName: string,
   input: Record<string, any>,
-  sessionId: string
+  sessionId: string,
+  _context: {
+    recentProductHandles?: string[];
+    preferences?: Record<string, unknown>;
+  } = {}
 ): Promise<ToolResult> {
   switch (toolName) {
     case "search_products": {
@@ -74,6 +78,52 @@ export async function executeMockTool(
           material: product.metafields.materialSummary,
         }),
         products: [product],
+      };
+    }
+
+    case "get_size_availability": {
+      const size = String(input.size ?? "");
+      const query = `${input.query ?? ""} ${input.handle_or_id ?? ""}`.toLowerCase();
+      const product = MOCK_PRODUCTS.find((p) =>
+        query.includes(p.handle.toLowerCase()) ||
+        query.includes(p.title.toLowerCase()) ||
+        query.includes(p.vendor.toLowerCase())
+      ) ?? MOCK_PRODUCTS[0];
+
+      const variant = product.variants.find((v) =>
+        v.availableForSale &&
+        v.selectedOptions.some((o) => o.name === "Size" && o.value.toLowerCase() === size.toLowerCase())
+      ) ?? null;
+
+      await logEvent(sessionId, "size_availability_requested", {
+        product: product.handle,
+        size,
+        available: Boolean(variant),
+      });
+
+      return {
+        content: JSON.stringify({
+          available: Boolean(variant),
+          requestedSize: size,
+          variantId: variant?.id ?? null,
+          productHandle: product.handle,
+        }),
+        products: [product],
+      };
+    }
+
+    case "find_similar_products": {
+      const anchor = input.handle_or_id
+        ? MOCK_PRODUCTS.find((p) => p.handle === input.handle_or_id || p.id === input.handle_or_id)
+        : null;
+
+      const products = anchor
+        ? MOCK_PRODUCTS.filter((p) => p.id !== anchor.id && p.vendor === anchor.vendor).slice(0, 3)
+        : MOCK_PRODUCTS.slice(0, 3);
+
+      return {
+        content: `Found ${products.length} similar product option(s).`,
+        products,
       };
     }
 
@@ -215,6 +265,7 @@ export async function executeMockTool(
       return { content: cart.checkoutUrl, checkoutUrl: cart.checkoutUrl, cart };
     }
 
+    case "get_policy":
     case "answer_policy_question": {
       const result = answerPolicyQuestion(input.question);
       await logEvent(sessionId, "policy_question", { question: input.question });

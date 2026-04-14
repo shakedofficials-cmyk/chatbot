@@ -1,8 +1,18 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../db/client.js";
-import type { Product, SearchFilters } from "../../../shared/types.js";
-import type { Prisma } from "@prisma/client";
+import { env } from "../../config.js";
+import type {
+  HybridSearchResult,
+  Product,
+  RetrievedProduct,
+  SearchFilters,
+} from "../../../shared/types.js";
+import { embedText, cosineSimilarity } from "../retrieval/embeddings.js";
+import { logRetrievalEvent } from "../retrieval/logging.js";
+import { normalizeText } from "../retrieval/normalize.js";
+import { understandCatalogQuery } from "../retrieval/query-understanding.js";
+import { expandQueryWithSynonyms } from "../retrieval/synonyms.js";
 
-// Prisma includes for fetching a product with all relations
 const productInclude = {
   variants: { orderBy: { sortOrder: "asc" as const } },
   images: { orderBy: { sortOrder: "asc" as const } },
@@ -12,7 +22,12 @@ type SyncProductRow = Prisma.SyncProductGetPayload<{
   include: typeof productInclude;
 }>;
 
-/** Map a Prisma SyncProduct row (with variants + images) to the shared Product type. */
+interface SearchOptions {
+  first?: number;
+  sessionId?: string;
+  toolName?: string;
+}
+
 function dbRowToProduct(row: SyncProductRow): Product {
   return {
     id: row.id,
@@ -29,28 +44,28 @@ function dbRowToProduct(row: SyncProductRow): Product {
       height: img.height ?? undefined,
     })),
     options: JSON.parse(row.options),
-    variants: row.variants.map((v) => ({
-      id: v.id,
-      title: v.title,
-      availableForSale: v.availableForSale,
-      quantityAvailable: v.quantityAvailable,
+    variants: row.variants.map((variant) => ({
+      id: variant.id,
+      title: variant.title,
+      availableForSale: variant.availableForSale,
+      quantityAvailable: variant.quantityAvailable,
       price: {
-        amount: v.priceAmount.toString(),
-        currencyCode: v.priceCurrency,
+        amount: variant.priceAmount.toString(),
+        currencyCode: variant.priceCurrency,
       },
-      compareAtPrice: v.compareAtPrice
+      compareAtPrice: variant.compareAtPrice
         ? {
-            amount: v.compareAtPrice.toString(),
-            currencyCode: v.compareAtCurrency ?? "USD",
+            amount: variant.compareAtPrice.toString(),
+            currencyCode: variant.compareAtCurrency ?? variant.priceCurrency,
           }
         : null,
-      selectedOptions: JSON.parse(v.selectedOptions),
-      image: v.imageUrl
+      selectedOptions: JSON.parse(variant.selectedOptions),
+      image: variant.imageUrl
         ? {
-            url: v.imageUrl,
-            altText: v.imageAltText,
-            width: v.imageWidth ?? undefined,
-            height: v.imageHeight ?? undefined,
+            url: variant.imageUrl,
+            altText: variant.imageAltText,
+            width: variant.imageWidth ?? undefined,
+            height: variant.imageHeight ?? undefined,
           }
         : null,
     })),
@@ -76,103 +91,468 @@ function dbRowToProduct(row: SyncProductRow): Product {
   };
 }
 
-/** Search products using ILIKE on the pre-computed searchText column + filter columns. */
-export async function searchProducts(
-  query: string,
-  filters: SearchFilters = {},
-  first = 10
-): Promise<Product[]> {
+function buildWhere(filters: SearchFilters): Prisma.SyncProductWhereInput {
   const where: Prisma.SyncProductWhereInput = {};
-  const andConditions: Prisma.SyncProductWhereInput[] = [];
+  const and: Prisma.SyncProductWhereInput[] = [];
 
-  // Full-text search: each term must appear in searchText
-  const terms = query
-    .trim()
-    .split(/\s+/)
-    .filter((t) => t.length > 0);
-  for (const term of terms) {
-    andConditions.push({
-      searchText: { contains: term, mode: "insensitive" },
-    });
-  }
-
-  // Filters
   if (filters.brand) {
-    andConditions.push({ vendor: { contains: filters.brand, mode: "insensitive" } });
+    and.push({ normalizedVendor: normalizeText(filters.brand) });
   }
   if (filters.productType) {
-    andConditions.push({
+    and.push({ normalizedType: { contains: normalizeText(filters.productType) } });
+  }
+  if (filters.category) {
+    and.push({
       OR: [
-        { productType: { equals: filters.productType, mode: "insensitive" } },
-        { searchText: { contains: filters.productType, mode: "insensitive" } },
+        { category: { contains: normalizeText(filters.category), mode: "insensitive" } },
+        { normalizedType: { contains: normalizeText(filters.category) } },
       ],
     });
   }
-  if (filters.category) {
-    andConditions.push({
-      searchText: { contains: filters.category, mode: "insensitive" },
+  if (filters.color) {
+    and.push({
+      OR: [
+        { colorText: { contains: normalizeText(filters.color) } },
+        { variants: { some: { colorValue: { equals: filters.color, mode: "insensitive" } } } },
+      ],
     });
   }
-  if (filters.color) {
-    andConditions.push({
-      searchText: { contains: filters.color, mode: "insensitive" },
+  if (filters.model) {
+    const model = normalizeText(filters.model);
+    and.push({
+      OR: [
+        { normalizedTitle: { contains: model } },
+        { modelKey: { contains: model } },
+        { silhouette: { contains: model } },
+        { searchText: { contains: model } },
+      ],
+    });
+  }
+  if (filters.silhouette) {
+    and.push({
+      OR: [
+        { silhouette: { contains: normalizeText(filters.silhouette) } },
+        { modelKey: { contains: normalizeText(filters.silhouette) } },
+      ],
     });
   }
   if (filters.minPrice != null) {
-    andConditions.push({ minPrice: { gte: filters.minPrice } });
+    and.push({ minPrice: { gte: filters.minPrice } });
   }
   if (filters.maxPrice != null) {
-    andConditions.push({ minPrice: { lte: filters.maxPrice } });
+    and.push({ minPrice: { lte: filters.maxPrice } });
   }
   if (filters.inStock) {
-    andConditions.push({
-      variants: { some: { availableForSale: true } },
+    and.push({ variants: { some: { availableForSale: true } } });
+  }
+  if (filters.size) {
+    and.push({
+      variants: {
+        some: {
+          sizeValue: { equals: filters.size, mode: "insensitive" },
+          ...(filters.inStock ? { availableForSale: true } : {}),
+        },
+      },
     });
   }
 
-  if (andConditions.length > 0) {
-    where.AND = andConditions;
+  if (and.length > 0) {
+    where.AND = and;
   }
 
-  const rows = await prisma.syncProduct.findMany({
-    where,
-    include: productInclude,
-    take: first,
-  });
-
-  return rows.map(dbRowToProduct);
+  return where;
 }
 
-/** Get a single product by its URL handle. */
-export async function getProductByHandle(
-  handle: string
-): Promise<Product | null> {
+async function fetchProductsByIds(ids: string[]): Promise<Map<string, Product>> {
+  if (ids.length === 0) return new Map();
+
+  const rows = await prisma.syncProduct.findMany({
+    where: { id: { in: ids } },
+    include: productInclude,
+  });
+
+  return new Map(rows.map((row) => [row.id, dbRowToProduct(row)]));
+}
+
+async function lexicalSearch(
+  query: string,
+  filters: SearchFilters,
+  limit: number
+): Promise<Array<{ productId: string; score: number }>> {
+  const normalizedQuery = normalizeText(query);
+  const expanded = await expandQueryWithSynonyms(normalizedQuery);
+  const lexicalQuery = expanded.join(" ").trim() || normalizedQuery;
+  const likeQuery = `%${normalizedQuery}%`;
+  const clauses: Prisma.Sql[] = [];
+
+  if (filters.brand) {
+    clauses.push(Prisma.sql`p."normalizedVendor" = ${normalizeText(filters.brand)}`);
+  }
+  if (filters.productType) {
+    clauses.push(Prisma.sql`p."normalizedType" LIKE ${`%${normalizeText(filters.productType)}%`}`);
+  }
+  if (filters.category) {
+    clauses.push(
+      Prisma.sql`(
+        COALESCE(p."category", '') ILIKE ${`%${normalizeText(filters.category)}%`}
+        OR p."normalizedType" LIKE ${`%${normalizeText(filters.category)}%`}
+      )`
+    );
+  }
+  if (filters.color) {
+    clauses.push(
+      Prisma.sql`(
+        p."colorText" LIKE ${`%${normalizeText(filters.color)}%`}
+        OR EXISTS (
+          SELECT 1
+          FROM "SyncProductVariant" v
+          WHERE v."productId" = p."id"
+            AND COALESCE(v."colorValue", '') ILIKE ${`%${filters.color}%`}
+        )
+      )`
+    );
+  }
+  if (filters.model) {
+    const model = normalizeText(filters.model);
+    clauses.push(
+      Prisma.sql`(
+        p."normalizedTitle" LIKE ${`%${model}%`}
+        OR COALESCE(p."modelKey", '') LIKE ${`%${model}%`}
+        OR COALESCE(p."silhouette", '') LIKE ${`%${model}%`}
+      )`
+    );
+  }
+  if (filters.silhouette) {
+    const silhouette = normalizeText(filters.silhouette);
+    clauses.push(
+      Prisma.sql`(
+        COALESCE(p."silhouette", '') LIKE ${`%${silhouette}%`}
+        OR COALESCE(p."modelKey", '') LIKE ${`%${silhouette}%`}
+      )`
+    );
+  }
+  if (filters.minPrice != null) {
+    clauses.push(Prisma.sql`p."minPrice" >= ${filters.minPrice}`);
+  }
+  if (filters.maxPrice != null) {
+    clauses.push(Prisma.sql`p."minPrice" <= ${filters.maxPrice}`);
+  }
+  if (filters.inStock) {
+    clauses.push(
+      Prisma.sql`EXISTS (
+        SELECT 1
+        FROM "SyncProductVariant" v
+        WHERE v."productId" = p."id" AND v."availableForSale" = true
+      )`
+    );
+  }
+  if (filters.size) {
+    clauses.push(
+      Prisma.sql`EXISTS (
+        SELECT 1
+        FROM "SyncProductVariant" v
+        WHERE v."productId" = p."id"
+          AND COALESCE(v."sizeValue", '') ILIKE ${filters.size}
+          ${filters.inStock ? Prisma.sql`AND v."availableForSale" = true` : Prisma.empty}
+      )`
+    );
+  }
+
+  const hasWhereClauses = clauses.length > 0;
+  const whereClause = hasWhereClauses
+    ? Prisma.sql`WHERE ${Prisma.join(clauses, " AND ")}`
+    : Prisma.empty;
+
+  const rows = await prisma.$queryRaw<Array<{ productId: string; score: number }>>(Prisma.sql`
+    SELECT
+      p."id" AS "productId",
+      (
+        ts_rank_cd(
+          to_tsvector(
+            'simple',
+            concat_ws(
+              ' ',
+              COALESCE(p."searchText", ''),
+              COALESCE(p."styleText", ''),
+              COALESCE(p."colorText", ''),
+              COALESCE(p."sizeText", ''),
+              COALESCE(p."modelKey", ''),
+              COALESCE(p."silhouette", '')
+            )
+          ),
+          websearch_to_tsquery('simple', ${lexicalQuery})
+        )
+        + CASE WHEN p."normalizedTitle" = ${normalizedQuery} THEN 2 ELSE 0 END
+        + CASE WHEN p."normalizedTitle" LIKE ${likeQuery} THEN 1 ELSE 0 END
+        + CASE WHEN COALESCE(p."modelKey", '') LIKE ${likeQuery} THEN 0.75 ELSE 0 END
+        + CASE WHEN COALESCE(p."silhouette", '') LIKE ${likeQuery} THEN 0.5 ELSE 0 END
+      )::float AS score
+    FROM "SyncProduct" p
+    ${whereClause}
+    ${hasWhereClauses ? Prisma.sql`AND` : Prisma.sql`WHERE`}
+    (
+      to_tsvector(
+        'simple',
+        concat_ws(
+          ' ',
+          COALESCE(p."searchText", ''),
+          COALESCE(p."styleText", ''),
+          COALESCE(p."colorText", ''),
+          COALESCE(p."sizeText", ''),
+          COALESCE(p."modelKey", ''),
+          COALESCE(p."silhouette", '')
+        )
+      ) @@ websearch_to_tsquery('simple', ${lexicalQuery})
+      OR p."normalizedTitle" LIKE ${likeQuery}
+      OR COALESCE(p."modelKey", '') LIKE ${likeQuery}
+      OR COALESCE(p."silhouette", '') LIKE ${likeQuery}
+    )
+    ORDER BY score DESC, p."availableVariantCount" DESC, p."updatedAt" DESC
+    LIMIT ${limit}
+  `);
+
+  return rows.filter((row) => row.score > 0);
+}
+
+async function semanticSearch(
+  query: string,
+  filters: SearchFilters,
+  limit: number
+): Promise<Array<{ productId: string; score: number }>> {
+  const queryEmbedding = await embedText(query);
+  if (!queryEmbedding) return [];
+
+  const rows = await prisma.syncProduct.findMany({
+    where: buildWhere(filters),
+    select: {
+      id: true,
+      embeddings: {
+        where: {
+          model: env.OPENAI_EMBEDDING_MODEL,
+        },
+        take: 1,
+      },
+    },
+    take: 250,
+  });
+
+  return rows
+    .map((row) => {
+      const vector = row.embeddings[0]?.vector;
+      if (!vector) return null;
+
+      const productEmbedding = JSON.parse(vector) as number[];
+      return {
+        productId: row.id,
+        score: cosineSimilarity(queryEmbedding, productEmbedding),
+      };
+    })
+    .filter((entry): entry is { productId: string; score: number } => Boolean(entry))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}
+
+function rerankProduct(params: {
+  product: Product;
+  normalizedQuery: string;
+  filters: SearchFilters;
+  lexicalScore: number;
+  maxLexicalScore: number;
+  semanticScore: number;
+  maxSemanticScore: number;
+}): RetrievedProduct {
+  const reasoning: string[] = [];
+  const normalizedTitle = normalizeText(params.product.title);
+  const normalizedBrand = normalizeText(params.product.vendor);
+  const normalizedModel = normalizeText(params.filters.model ?? params.filters.silhouette ?? "");
+  const lexicalNormalized = params.maxLexicalScore > 0 ? params.lexicalScore / params.maxLexicalScore : 0;
+  const semanticNormalized = params.maxSemanticScore > 0 ? params.semanticScore / params.maxSemanticScore : 0;
+
+  let score = lexicalNormalized * 0.6 + semanticNormalized * 0.3;
+
+  if (normalizedTitle === params.normalizedQuery || normalizedTitle.includes(params.normalizedQuery)) {
+    score += 0.3;
+    reasoning.push("exact title match");
+  }
+
+  if (params.filters.brand && normalizedBrand === normalizeText(params.filters.brand)) {
+    score += 0.2;
+    reasoning.push("brand match");
+  }
+
+  if (
+    normalizedModel &&
+    (normalizedTitle.includes(normalizedModel) || normalizeText(params.product.handle).includes(normalizedModel))
+  ) {
+    score += 0.2;
+    reasoning.push("model match");
+  }
+
+  if (params.filters.color && normalizeText(params.product.title).includes(normalizeText(params.filters.color))) {
+    score += 0.08;
+    reasoning.push("color match");
+  }
+
+  if (params.filters.maxPrice != null && Number(params.product.priceRange.minVariantPrice.amount) <= params.filters.maxPrice) {
+    score += 0.06;
+    reasoning.push("within budget");
+  }
+
+  const inStockVariants = params.product.variants.filter((variant) => variant.availableForSale);
+  if (params.filters.inStock && inStockVariants.length > 0) {
+    score += 0.1;
+    reasoning.push("in stock");
+  }
+
+  if (params.filters.size) {
+    const matchingSize = inStockVariants.find((variant) =>
+      variant.selectedOptions.some(
+        (option) =>
+          option.name.toLowerCase() === "size" &&
+          normalizeText(option.value) === normalizeText(params.filters.size)
+      )
+    );
+
+    if (matchingSize) {
+      score += 0.25;
+      reasoning.push(`size ${params.filters.size} available`);
+    }
+  }
+
+  if (reasoning.length === 0) {
+    reasoning.push("catalog relevance");
+  }
+
+  return {
+    product: params.product,
+    lexicalScore: params.lexicalScore,
+    semanticScore: params.semanticScore,
+    rerankScore: score,
+    reasoning,
+  };
+}
+
+export async function hybridSearchProducts(
+  query: string,
+  filters: SearchFilters = {},
+  options: SearchOptions = {}
+): Promise<HybridSearchResult> {
+  const understanding = await understandCatalogQuery(query);
+  const mergedFilters: SearchFilters = {
+    ...understanding.filters,
+    ...filters,
+  };
+
+  const lexicalCandidates = await lexicalSearch(query, mergedFilters, 24);
+  const semanticCandidates = await semanticSearch(query, mergedFilters, 24);
+  const candidateIds = Array.from(
+    new Set([...lexicalCandidates.map((entry) => entry.productId), ...semanticCandidates.map((entry) => entry.productId)])
+  );
+
+  const productMap = await fetchProductsByIds(candidateIds);
+  const lexicalScoreMap = new Map(lexicalCandidates.map((entry) => [entry.productId, entry.score]));
+  const semanticScoreMap = new Map(semanticCandidates.map((entry) => [entry.productId, entry.score]));
+  const maxLexicalScore = Math.max(...lexicalCandidates.map((entry) => entry.score), 0);
+  const maxSemanticScore = Math.max(...semanticCandidates.map((entry) => entry.score), 0);
+
+  const results = candidateIds
+    .map((productId) => {
+      const product = productMap.get(productId);
+      if (!product) return null;
+
+      return rerankProduct({
+        product,
+        normalizedQuery: understanding.normalizedQuery,
+        filters: mergedFilters,
+        lexicalScore: lexicalScoreMap.get(productId) ?? 0,
+        maxLexicalScore,
+        semanticScore: semanticScoreMap.get(productId) ?? 0,
+        maxSemanticScore,
+      });
+    })
+    .filter((entry): entry is RetrievedProduct => Boolean(entry))
+    .sort((a, b) => b.rerankScore - a.rerankScore)
+    .slice(0, options.first ?? 8);
+
+  const result: HybridSearchResult = {
+    understanding: {
+      ...understanding,
+      filters: mergedFilters,
+    },
+    lexicalCandidates,
+    semanticCandidates,
+    results,
+  };
+
+  if (options.toolName) {
+    await logRetrievalEvent({
+      sessionId: options.sessionId,
+      query,
+      result,
+      toolName: options.toolName,
+    });
+  }
+
+  return result;
+}
+
+export async function searchProducts(
+  query: string,
+  filters: SearchFilters = {},
+  first = 10,
+  sessionId?: string
+): Promise<Product[]> {
+  const result = await hybridSearchProducts(query, filters, {
+    first,
+    sessionId,
+    toolName: "search_products",
+  });
+
+  return result.results.map((entry) => entry.product);
+}
+
+export async function getProductByHandle(handle: string): Promise<Product | null> {
   const row = await prisma.syncProduct.findUnique({
     where: { handle },
     include: productInclude,
   });
+
   return row ? dbRowToProduct(row) : null;
 }
 
-/** Get a single product by Shopify GID. */
 export async function getProductById(id: string): Promise<Product | null> {
   const row = await prisma.syncProduct.findUnique({
     where: { id },
     include: productInclude,
   });
+
   return row ? dbRowToProduct(row) : null;
 }
 
-/** Get multiple products by their IDs. */
 export async function getProductsByIds(ids: string[]): Promise<Product[]> {
   const rows = await prisma.syncProduct.findMany({
     where: { id: { in: ids } },
     include: productInclude,
   });
+
   return rows.map(dbRowToProduct);
 }
 
-/** Resolve a variant by selected options (e.g. { Size: "42", Color: "Black" }). */
+export async function getProductsByHandles(handles: string[]): Promise<Product[]> {
+  if (handles.length === 0) return [];
+
+  const rows = await prisma.syncProduct.findMany({
+    where: { handle: { in: handles } },
+    include: productInclude,
+  });
+
+  const rowsByHandle = new Map(rows.map((row) => [row.handle, row]));
+  return handles
+    .map((handle) => rowsByHandle.get(handle))
+    .filter((row): row is SyncProductRow => Boolean(row))
+    .map(dbRowToProduct);
+}
+
 export async function getVariantByOptions(
   handleOrId: string,
   selectedOptions: Record<string, string>
@@ -184,12 +564,12 @@ export async function getVariantByOptions(
   if (!product) throw new Error(`Product not found: ${handleOrId}`);
 
   const variant =
-    product.variants.find((v) =>
+    product.variants.find((entry) =>
       Object.entries(selectedOptions).every(([name, value]) =>
-        v.selectedOptions.some(
-          (o) =>
-            o.name.toLowerCase() === name.toLowerCase() &&
-            o.value.toLowerCase() === value.toLowerCase()
+        entry.selectedOptions.some(
+          (option) =>
+            option.name.toLowerCase() === name.toLowerCase() &&
+            option.value.toLowerCase() === value.toLowerCase()
         )
       )
     ) ?? null;
@@ -197,7 +577,6 @@ export async function getVariantByOptions(
   return { product, variant };
 }
 
-/** Check variant availability by variant ID. */
 export async function getVariantAvailability(
   variantId: string,
   handleOrId: string
@@ -212,11 +591,115 @@ export async function getVariantAvailability(
 
   if (!product) throw new Error(`Product not found: ${handleOrId}`);
 
-  const variant = product.variants.find((v) => v.id === variantId) ?? null;
+  const variant = product.variants.find((entry) => entry.id === variantId) ?? null;
 
   return {
     available: variant?.availableForSale ?? false,
     quantityAvailable: variant?.quantityAvailable ?? null,
     variant,
   };
+}
+
+export async function getSizeAvailability(
+  input: {
+    query?: string;
+    handleOrId?: string;
+    size: string;
+  },
+  sessionId?: string
+): Promise<{
+  product: Product | null;
+  matchingVariant: Product["variants"][0] | null;
+  alternatives: Product[];
+}> {
+  let product: Product | null = null;
+
+  if (input.handleOrId) {
+    product = input.handleOrId.startsWith("gid://")
+      ? await getProductById(input.handleOrId)
+      : await getProductByHandle(input.handleOrId);
+  } else if (input.query) {
+    const result = await hybridSearchProducts(
+      input.query,
+      { size: input.size, inStock: true },
+      { first: 4, sessionId, toolName: "get_size_availability" }
+    );
+    product = result.results[0]?.product ?? null;
+  }
+
+  if (!product) {
+    const alternatives = input.query
+      ? await searchProducts(input.query, { inStock: true }, 4, sessionId)
+      : [];
+    return { product: null, matchingVariant: null, alternatives };
+  }
+
+  const matchingVariant =
+    product.variants.find(
+      (variant) =>
+        variant.availableForSale &&
+        variant.selectedOptions.some(
+          (option) =>
+            option.name.toLowerCase() === "size" &&
+            normalizeText(option.value) === normalizeText(input.size)
+        )
+    ) ?? null;
+
+  const alternatives = matchingVariant || !input.query
+    ? []
+    : await searchProducts(input.query, { inStock: true }, 4, sessionId);
+
+  return {
+    product,
+    matchingVariant,
+    alternatives: alternatives.filter((entry) => entry.id !== product?.id),
+  };
+}
+
+export async function findSimilarProducts(
+  handleOrId: string,
+  query?: string,
+  sessionId?: string
+): Promise<Product[]> {
+  if (!handleOrId && query) {
+    const result = await hybridSearchProducts(query, { inStock: true }, {
+      first: 4,
+      sessionId,
+      toolName: "find_similar_products",
+    });
+    return result.results.map((entry) => entry.product);
+  }
+
+  const product = handleOrId.startsWith("gid://")
+    ? await getProductById(handleOrId)
+    : await getProductByHandle(handleOrId);
+
+  if (!product) return [];
+
+  const searchQuery =
+    query ??
+    [
+      product.vendor,
+      product.title,
+      product.productType,
+      product.metafields.styleTags?.join(" "),
+      product.metafields.recommendedUse,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+  const result = await hybridSearchProducts(searchQuery, {
+    brand: product.vendor,
+    category: product.productType,
+    inStock: true,
+  }, {
+    first: 6,
+    sessionId,
+    toolName: "find_similar_products",
+  });
+
+  return result.results
+    .map((entry) => entry.product)
+    .filter((entry) => entry.id !== product.id)
+    .slice(0, 4);
 }

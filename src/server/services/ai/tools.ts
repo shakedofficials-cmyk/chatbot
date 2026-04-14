@@ -3,21 +3,23 @@ export const AI_TOOLS = [
     type: "function" as const,
     name: "search_products",
     description:
-      "Search the ORJN product catalog. Use this for any product discovery, recommendation, or browsing request. Supports filters for brand, price range, category, color, product type, and in-stock preference.",
+      "Search the synced ORJN catalog using grounded hybrid retrieval. Use for product discovery, recommendations, style queries, and browsing. Supports structured filters such as brand, model, size, color, price, category, and in-stock preference.",
     parameters: {
       type: "object",
       properties: {
         query: {
           type: "string",
-          description: "Natural language search query, e.g. 'black sneakers' or 'adidas running shoes'",
+          description: "Natural language catalog query such as 'clean everyday sneaker' or 'adidas gazelle black'",
         },
-        brand: { type: "string", description: "Filter by brand/vendor, e.g. 'Nike', 'Adidas'" },
+        brand: { type: "string", description: "Brand/vendor filter, e.g. 'Nike' or 'Adidas'" },
+        model: { type: "string", description: "Model or silhouette filter, e.g. 'Dunk', 'Samba', 'Gazelle'" },
+        size: { type: "string", description: "Requested size, e.g. '44'" },
         min_price: { type: "number", description: "Minimum price filter" },
         max_price: { type: "number", description: "Maximum price filter" },
-        category: { type: "string", description: "Category keyword, e.g. 'sneakers', 'sportswear'" },
+        category: { type: "string", description: "Category or type such as 'sneakers' or 'runner'" },
         color: { type: "string", description: "Color filter, e.g. 'black', 'white'" },
-        product_type: { type: "string", description: "Shopify product type filter" },
-        in_stock: { type: "boolean", description: "Only show in-stock products" },
+        product_type: { type: "string", description: "Normalized product type filter" },
+        in_stock: { type: "boolean", description: "Only return in-stock products" },
       },
       required: ["query"],
     },
@@ -26,13 +28,13 @@ export const AI_TOOLS = [
     type: "function" as const,
     name: "get_product",
     description:
-      "Get full details for a specific product by its handle (URL slug) or Shopify ID. Use when the user asks about a specific product or you need detailed info.",
+      "Get grounded catalog details for a specific product by handle or Shopify product ID.",
     parameters: {
       type: "object",
       properties: {
         handle_or_id: {
           type: "string",
-          description: "Product handle (e.g. 'adidas-samba-og') or Shopify GID",
+          description: "Product handle like 'nike-dunk-low' or Shopify product GID",
         },
       },
       required: ["handle_or_id"],
@@ -40,16 +42,77 @@ export const AI_TOOLS = [
   },
   {
     type: "function" as const,
-    name: "get_variant_by_options",
+    name: "get_size_availability",
     description:
-      "Resolve a specific product variant by selected options like size and color. Use when the user asks for a specific size, color, or combination.",
+      "Check whether a requested size is available for a specific product or the best matching retrieved product. Use this for questions like 'do you have dunks size 44'.",
     parameters: {
       type: "object",
       properties: {
-        handle_or_id: { type: "string", description: "Product handle or Shopify GID" },
+        query: {
+          type: "string",
+          description: "Optional natural language product query when the exact handle is not known",
+        },
+        handle_or_id: {
+          type: "string",
+          description: "Optional product handle or Shopify product GID when the product is already known",
+        },
+        size: {
+          type: "string",
+          description: "Requested size value such as '44'",
+        },
+      },
+      required: ["size"],
+    },
+  },
+  {
+    type: "function" as const,
+    name: "find_similar_products",
+    description:
+      "Find a small set of strong alternatives similar to a known product or a style prompt. Use when the user wants similar options or a more premium/cleaner alternative.",
+    parameters: {
+      type: "object",
+      properties: {
+        handle_or_id: {
+          type: "string",
+          description: "Optional product handle or Shopify product GID to anchor similarity",
+        },
+        query: {
+          type: "string",
+          description: "Optional style query such as 'something like Samba but more premium'",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    type: "function" as const,
+    name: "compare_products",
+    description:
+      "Compare two or more catalog products side by side. Returns structured comparison data including price, available sizes, type, and materials.",
+    parameters: {
+      type: "object",
+      properties: {
+        product_ids: {
+          type: "array",
+          items: { type: "string" },
+          description: "Array of product handles or Shopify product IDs to compare",
+        },
+      },
+      required: ["product_ids"],
+    },
+  },
+  {
+    type: "function" as const,
+    name: "get_variant_by_options",
+    description:
+      "Resolve an exact variant from selected options like size and color when the specific product is already known.",
+    parameters: {
+      type: "object",
+      properties: {
+        handle_or_id: { type: "string", description: "Product handle or Shopify product GID" },
         selected_options: {
           type: "object",
-          description: "Key-value pairs of option name to value, e.g. { \"Size\": \"43\", \"Color\": \"Black\" }",
+          description: "Key-value pairs like { \"Size\": \"44\", \"Color\": \"Black\" }",
           additionalProperties: { type: "string" },
         },
       },
@@ -60,11 +123,11 @@ export const AI_TOOLS = [
     type: "function" as const,
     name: "get_variant_availability",
     description:
-      "Check availability and stock for a specific variant. Use when the user asks if a size/color is in stock.",
+      "Check availability for a specific variant ID on a known product.",
     parameters: {
       type: "object",
       properties: {
-        variant_id: { type: "string", description: "The variant's Shopify GID" },
+        variant_id: { type: "string", description: "Variant Shopify GID" },
         handle_or_id: { type: "string", description: "Product handle or Shopify GID" },
       },
       required: ["variant_id", "handle_or_id"],
@@ -72,91 +135,9 @@ export const AI_TOOLS = [
   },
   {
     type: "function" as const,
-    name: "compare_products",
+    name: "get_policy",
     description:
-      "Compare two or more products side by side. Returns structured comparison data including price, available sizes, brand, type, materials, and a recommendation.",
-    parameters: {
-      type: "object",
-      properties: {
-        product_ids: {
-          type: "array",
-          items: { type: "string" },
-          description: "Array of product handles or Shopify GIDs to compare (2–4 products)",
-        },
-      },
-      required: ["product_ids"],
-    },
-  },
-  {
-    type: "function" as const,
-    name: "cart_create",
-    description: "Create a new shopping cart. Use this before adding items if no cart exists yet.",
-    parameters: {
-      type: "object",
-      properties: {},
-      required: [],
-    },
-  },
-  {
-    type: "function" as const,
-    name: "cart_add_lines",
-    description:
-      "Add a product variant to the cart. You must have the exact variant ID (from get_variant_by_options) and an existing cart ID.",
-    parameters: {
-      type: "object",
-      properties: {
-        cart_id: { type: "string", description: "The cart's Shopify GID" },
-        variant_id: { type: "string", description: "The variant's Shopify GID to add" },
-        quantity: { type: "number", description: "Quantity to add (default 1)" },
-      },
-      required: ["cart_id", "variant_id"],
-    },
-  },
-  {
-    type: "function" as const,
-    name: "cart_update_lines",
-    description:
-      "Update quantity of an item already in the cart. Use for quantity changes or removal (set quantity to 0).",
-    parameters: {
-      type: "object",
-      properties: {
-        cart_id: { type: "string", description: "The cart's Shopify GID" },
-        line_id: { type: "string", description: "The cart line ID to update" },
-        quantity: { type: "number", description: "New quantity (0 to remove)" },
-      },
-      required: ["cart_id", "line_id", "quantity"],
-    },
-  },
-  {
-    type: "function" as const,
-    name: "get_cart",
-    description: "Retrieve the current cart state with all items, quantities, and totals.",
-    parameters: {
-      type: "object",
-      properties: {
-        cart_id: { type: "string", description: "The cart's Shopify GID" },
-      },
-      required: ["cart_id"],
-    },
-  },
-  {
-    type: "function" as const,
-    name: "get_checkout_url",
-    description:
-      "Get the checkout URL for the current cart. Use when the user wants to proceed to checkout.",
-    parameters: {
-      type: "object",
-      properties: {
-        cart_id: { type: "string", description: "The cart's Shopify GID" },
-      },
-      required: ["cart_id"],
-    },
-  },
-  {
-    type: "function" as const,
-    name: "answer_policy_question",
-    description:
-      "Answer a store policy question (shipping, returns, authenticity, sizing, care, support, payment). Use for any non-product question about ORJN policies.",
+      "Answer ORJN non-product policy questions such as shipping, returns, COD, payments, or authenticity.",
     parameters: {
       type: "object",
       properties: {
@@ -170,9 +151,73 @@ export const AI_TOOLS = [
   },
   {
     type: "function" as const,
+    name: "cart_create",
+    description: "Create a new shopping cart.",
+    parameters: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    type: "function" as const,
+    name: "cart_add_lines",
+    description:
+      "Add an exact variant to cart. Requires an existing cart ID and exact variant ID.",
+    parameters: {
+      type: "object",
+      properties: {
+        cart_id: { type: "string", description: "The cart Shopify GID" },
+        variant_id: { type: "string", description: "The variant Shopify GID" },
+        quantity: { type: "number", description: "Quantity to add" },
+      },
+      required: ["cart_id", "variant_id"],
+    },
+  },
+  {
+    type: "function" as const,
+    name: "cart_update_lines",
+    description:
+      "Update the quantity of an existing cart line.",
+    parameters: {
+      type: "object",
+      properties: {
+        cart_id: { type: "string", description: "The cart Shopify GID" },
+        line_id: { type: "string", description: "The cart line ID" },
+        quantity: { type: "number", description: "New quantity, including 0 for removal" },
+      },
+      required: ["cart_id", "line_id", "quantity"],
+    },
+  },
+  {
+    type: "function" as const,
+    name: "get_cart",
+    description: "Get the current cart contents and totals.",
+    parameters: {
+      type: "object",
+      properties: {
+        cart_id: { type: "string", description: "The cart Shopify GID" },
+      },
+      required: ["cart_id"],
+    },
+  },
+  {
+    type: "function" as const,
+    name: "get_checkout_url",
+    description: "Get the checkout URL for the current cart.",
+    parameters: {
+      type: "object",
+      properties: {
+        cart_id: { type: "string", description: "The cart Shopify GID" },
+      },
+      required: ["cart_id"],
+    },
+  },
+  {
+    type: "function" as const,
     name: "log_event",
     description:
-      "Log an analytics event. Call this to track user interactions like searches, clicks, add-to-cart, etc.",
+      "Log analytics events such as product_search, comparison_requested, add_to_cart, and no_result.",
     parameters: {
       type: "object",
       properties: {
@@ -189,11 +234,9 @@ export const AI_TOOLS = [
             "policy_question",
             "size_availability_requested",
           ],
-          description: "The event name to log",
         },
         payload: {
           type: "object",
-          description: "Additional event data",
           additionalProperties: true,
         },
       },

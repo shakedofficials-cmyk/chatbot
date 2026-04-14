@@ -10,6 +10,7 @@ import { usesMockShopify } from "./config.js";
 import { prisma } from "./db/client.js";
 import chatRoutes from "./routes/chat.js";
 import analyticsRoutes from "./routes/analytics.js";
+import retrievalRoutes from "./routes/retrieval.js";
 import { syncShopifyProducts } from "./services/sync/shopify-sync.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -72,6 +73,7 @@ const analyticsLimiter = rateLimit({
 // Routes
 app.use("/api/chat", chatLimiter, chatRoutes);
 app.use("/api/analytics", analyticsLimiter, analyticsRoutes);
+app.use("/api/retrieval", retrievalRoutes);
 
 // Health check - pings DB to catch connection failures
 app.get("/api/health", async (_req: Request, res: Response) => {

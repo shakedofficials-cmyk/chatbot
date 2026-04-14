@@ -19,7 +19,11 @@ export async function devOrchestrate(
   userMessage: string,
   _conversationHistory: { role: string; content: string }[],
   sessionId: string,
-  cartId: string | null
+  cartId: string | null,
+  _context: {
+    recentProductHandles?: string[];
+    preferences?: Record<string, unknown>;
+  } = {}
 ): Promise<OrchestratorResult> {
   const msg = userMessage.toLowerCase();
 

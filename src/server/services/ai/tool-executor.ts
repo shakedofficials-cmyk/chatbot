@@ -1,8 +1,12 @@
-import type { Product, ProductComparison, Cart, SearchFilters } from "../../../shared/types.js";
+import type { Cart, Product, ProductComparison, SearchFilters, ShopperPreferences } from "../../../shared/types.js";
 import * as shopify from "../shopify/storefront.js";
 import * as dbProducts from "../products/db-products.js";
 import { answerPolicyQuestion } from "../knowledge/index.js";
 import { logEvent } from "../analytics/index.js";
+import {
+  enrichSearchWithContext,
+  enrichSizeAvailabilityWithContext,
+} from "../retrieval/contextual-search.js";
 
 export interface ToolResult {
   content: string;
@@ -12,16 +16,26 @@ export interface ToolResult {
   checkoutUrl?: string;
 }
 
+export interface ToolExecutionContext {
+  recentProductHandles?: string[];
+  preferences?: Record<string, unknown>;
+}
+
 export async function executeTool(
   toolName: string,
   input: Record<string, any>,
-  sessionId: string
+  sessionId: string,
+  context: ToolExecutionContext = {}
 ): Promise<ToolResult> {
   switch (toolName) {
     case "search_products":
-      return handleSearchProducts(input, sessionId);
+      return handleSearchProducts(input, sessionId, context);
     case "get_product":
       return handleGetProduct(input);
+    case "get_size_availability":
+      return handleGetSizeAvailability(input, sessionId, context);
+    case "find_similar_products":
+      return handleFindSimilarProducts(input, sessionId, context);
     case "get_variant_by_options":
       return handleGetVariantByOptions(input);
     case "get_variant_availability":
@@ -38,8 +52,9 @@ export async function executeTool(
       return handleGetCart(input);
     case "get_checkout_url":
       return handleGetCheckoutUrl(input);
+    case "get_policy":
     case "answer_policy_question":
-      return handleAnswerPolicyQuestion(input, sessionId);
+      return handleGetPolicy(input, sessionId);
     case "log_event":
       return handleLogEvent(input, sessionId);
     default:
@@ -49,32 +64,54 @@ export async function executeTool(
 
 async function handleSearchProducts(
   input: Record<string, any>,
-  sessionId: string
+  sessionId: string,
+  context: ToolExecutionContext
 ): Promise<ToolResult> {
   const filters: SearchFilters = {
     brand: input.brand,
+    model: input.model,
     minPrice: input.min_price,
     maxPrice: input.max_price,
     category: input.category,
     color: input.color,
+    size: input.size,
     productType: input.product_type,
     inStock: input.in_stock,
   };
 
-  const products = await dbProducts.searchProducts(input.query, filters);
+  const recentProducts = context.recentProductHandles?.length
+    ? await dbProducts.getProductsByHandles(context.recentProductHandles.slice(-4))
+    : [];
+  const enriched = enrichSearchWithContext({
+    query: input.query,
+    filters,
+    recentProducts,
+    preferences: (context.preferences ?? {}) as ShopperPreferences,
+  });
 
-  await logEvent(sessionId, "product_search", { query: input.query, resultCount: products.length });
+  const products = await dbProducts.searchProducts(enriched.query, enriched.filters, 8, sessionId);
+
+  await logEvent(sessionId, "product_search", {
+    query: input.query,
+    effectiveFilters: enriched.filters,
+    contextReasoning: enriched.reasoning,
+    resultCount: products.length,
+  });
 
   if (products.length === 0) {
-    await logEvent(sessionId, "no_result", { query: input.query });
+    await logEvent(sessionId, "no_result", {
+      query: input.query,
+      effectiveFilters: enriched.filters,
+      contextReasoning: enriched.reasoning,
+    });
     return {
-      content: "No products found matching your search.",
+      content: "No strong catalog matches found.",
       products: [],
     };
   }
 
   return {
-    content: `Found ${products.length} product(s).`,
+    content: `Retrieved ${products.length} grounded catalog match(es).`,
     products,
   };
 }
@@ -95,6 +132,89 @@ async function handleGetProduct(input: Record<string, any>): Promise<ToolResult>
   };
 }
 
+async function handleGetSizeAvailability(
+  input: Record<string, any>,
+  sessionId: string,
+  context: ToolExecutionContext
+): Promise<ToolResult> {
+  const recentProducts = context.recentProductHandles?.length
+    ? await dbProducts.getProductsByHandles(context.recentProductHandles.slice(-4))
+    : [];
+  const enriched = enrichSizeAvailabilityWithContext({
+    query: input.query,
+    handleOrId: input.handle_or_id,
+    recentProducts,
+  });
+
+  const result = await dbProducts.getSizeAvailability(
+    {
+      query: enriched.query,
+      handleOrId: enriched.handleOrId,
+      size: String(input.size),
+    },
+    sessionId
+  );
+
+  await logEvent(sessionId, "size_availability_requested", {
+    query: input.query ?? input.handle_or_id,
+    effectiveHandle: enriched.handleOrId,
+    size: input.size,
+    foundProduct: Boolean(result.product),
+    inStock: Boolean(result.matchingVariant),
+  });
+
+  if (!result.product) {
+    return {
+      content: `No exact product match found for size ${input.size}.`,
+      products: result.alternatives,
+    };
+  }
+
+  if (!result.matchingVariant) {
+    return {
+      content: JSON.stringify({
+        available: false,
+        requestedSize: String(input.size),
+        productHandle: result.product.handle,
+      }),
+      products: [result.product, ...result.alternatives].slice(0, 4),
+    };
+  }
+
+  return {
+    content: JSON.stringify({
+      available: true,
+      requestedSize: String(input.size),
+      variantId: result.matchingVariant.id,
+      price: result.matchingVariant.price,
+      productHandle: result.product.handle,
+    }),
+    products: [result.product],
+  };
+}
+
+async function handleFindSimilarProducts(
+  input: Record<string, any>,
+  sessionId: string,
+  context: ToolExecutionContext
+): Promise<ToolResult> {
+  const recentHandle = context.recentProductHandles?.slice(-1)[0];
+  const products = await dbProducts.findSimilarProducts(
+    input.handle_or_id ?? recentHandle ?? "",
+    input.query,
+    sessionId
+  );
+
+  if (products.length === 0) {
+    return { content: "No similar products found.", products: [] };
+  }
+
+  return {
+    content: `Found ${products.length} similar product option(s).`,
+    products,
+  };
+}
+
 async function handleGetVariantByOptions(input: Record<string, any>): Promise<ToolResult> {
   const { product, variant } = await dbProducts.getVariantByOptions(
     input.handle_or_id,
@@ -103,12 +223,12 @@ async function handleGetVariantByOptions(input: Record<string, any>): Promise<To
 
   if (!variant) {
     const availableOptions = product.variants
-      .filter((v) => v.availableForSale)
-      .map((v) => v.selectedOptions.map((o) => `${o.name}: ${o.value}`).join(", "))
+      .filter((entry) => entry.availableForSale)
+      .map((entry) => entry.selectedOptions.map((option) => `${option.name}: ${option.value}`).join(", "))
       .slice(0, 5);
 
     return {
-      content: `That exact variant isn't available. Available options: ${availableOptions.join(" | ") || "none in stock"}`,
+      content: `That exact variant is not available. Available options: ${availableOptions.join(" | ") || "none in stock"}`,
       products: [product],
     };
   }
@@ -150,9 +270,8 @@ async function handleCompareProducts(
   sessionId: string
 ): Promise<ToolResult> {
   const ids: string[] = input.product_ids;
-
-  // Resolve products — handles or GIDs
   const products: Product[] = [];
+
   for (const id of ids) {
     const product = id.startsWith("gid://")
       ? await dbProducts.getProductById(id)
@@ -165,33 +284,37 @@ async function handleCompareProducts(
   }
 
   await logEvent(sessionId, "comparison_requested", {
-    products: products.map((p) => p.handle),
+    products: products.map((product) => product.handle),
   });
 
   const comparison: ProductComparison = {
     products,
     comparison: {
-      prices: products.map((p) => ({
-        handle: p.handle,
-        price: `${p.priceRange.minVariantPrice.amount} ${p.priceRange.minVariantPrice.currencyCode}`,
-        compareAtPrice: p.variants[0]?.compareAtPrice
-          ? `${p.variants[0].compareAtPrice.amount} ${p.variants[0].compareAtPrice.currencyCode}`
+      prices: products.map((product) => ({
+        handle: product.handle,
+        price: `${product.priceRange.minVariantPrice.amount} ${product.priceRange.minVariantPrice.currencyCode}`,
+        compareAtPrice: product.variants[0]?.compareAtPrice
+          ? `${product.variants[0].compareAtPrice.amount} ${product.variants[0].compareAtPrice.currencyCode}`
           : null,
       })),
-      availableSizes: products.map((p) => ({
-        handle: p.handle,
-        sizes: p.variants
-          .filter((v) => v.availableForSale)
-          .flatMap((v) => v.selectedOptions.filter((o) => o.name.toLowerCase() === "size").map((o) => o.value))
-          .filter((v, i, a) => a.indexOf(v) === i),
+      availableSizes: products.map((product) => ({
+        handle: product.handle,
+        sizes: product.variants
+          .filter((variant) => variant.availableForSale)
+          .flatMap((variant) =>
+            variant.selectedOptions
+              .filter((option) => option.name.toLowerCase() === "size")
+              .map((option) => option.value)
+          )
+          .filter((value, index, all) => all.indexOf(value) === index),
       })),
-      brands: products.map((p) => ({ handle: p.handle, brand: p.vendor })),
-      productTypes: products.map((p) => ({ handle: p.handle, type: p.productType })),
-      materials: products.map((p) => ({
-        handle: p.handle,
-        material: p.metafields.materialSummary ?? null,
+      brands: products.map((product) => ({ handle: product.handle, brand: product.vendor })),
+      productTypes: products.map((product) => ({ handle: product.handle, type: product.productType })),
+      materials: products.map((product) => ({
+        handle: product.handle,
+        material: product.metafields.materialSummary ?? null,
       })),
-      recommendations: "", // AI will generate this
+      recommendations: "",
     },
   };
 
@@ -211,25 +334,17 @@ async function handleCartCreate(): Promise<ToolResult> {
 }
 
 async function handleCartAddLines(input: Record<string, any>): Promise<ToolResult> {
-  const cart = await shopify.cartAddLines(
-    input.cart_id,
-    input.variant_id,
-    input.quantity ?? 1
-  );
+  const cart = await shopify.cartAddLines(input.cart_id, input.variant_id, input.quantity ?? 1);
   return {
-    content: `Added to cart. Cart now has ${cart.totalQuantity} item(s). Total: ${cart.cost.totalAmount.amount} ${cart.cost.totalAmount.currencyCode}`,
+    content: `Added to cart. Cart now has ${cart.totalQuantity} item(s).`,
     cart,
   };
 }
 
 async function handleCartUpdateLines(input: Record<string, any>): Promise<ToolResult> {
-  const cart = await shopify.cartUpdateLines(
-    input.cart_id,
-    input.line_id,
-    input.quantity
-  );
+  const cart = await shopify.cartUpdateLines(input.cart_id, input.line_id, input.quantity);
   return {
-    content: `Cart updated. ${cart.totalQuantity} item(s). Total: ${cart.cost.totalAmount.amount} ${cart.cost.totalAmount.currencyCode}`,
+    content: `Cart updated. ${cart.totalQuantity} item(s).`,
     cart,
   };
 }
@@ -251,12 +366,15 @@ async function handleGetCheckoutUrl(input: Record<string, any>): Promise<ToolRes
   };
 }
 
-async function handleAnswerPolicyQuestion(
+async function handleGetPolicy(
   input: Record<string, any>,
   sessionId: string
 ): Promise<ToolResult> {
   const result = answerPolicyQuestion(input.question);
-  await logEvent(sessionId, "policy_question", { question: input.question, topic: result.topic });
+  await logEvent(sessionId, "policy_question", {
+    question: input.question,
+    topic: result.topic,
+  });
   return { content: result.answer };
 }
 

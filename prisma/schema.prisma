@@ -37,6 +37,15 @@ model SyncProduct {
   description       String
   vendor            String
   productType       String
+  category          String?
+  normalizedTitle   String              @default("")
+  normalizedVendor  String              @default("")
+  normalizedType    String              @default("")
+  modelKey          String?
+  silhouette        String?
+  colorText         String              @default("")
+  styleText         String              @default("")
+  sizeText          String              @default("")
   tags              String              @default("[]")     // JSON array
   options           String              @default("[]")     // JSON array of {name, values}
   minPrice          Decimal             @db.Decimal(10, 2)
@@ -50,21 +59,33 @@ model SyncProduct {
   recommendedUse    String?
   compareHighlights String?
   searchText        String              @default("")       // lowercased title+vendor+type+tags+desc
+  embeddingText     String              @default("")
+  availableVariantCount Int             @default(0)
+  totalVariantCount Int                 @default(0)
   syncedAt          DateTime            @default(now())
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
   variants          SyncProductVariant[]
   images            SyncProductImage[]
+  embeddings        CatalogEmbedding[]
 
   @@index([vendor])
   @@index([productType])
+  @@index([category])
   @@index([minPrice])
+  @@index([normalizedTitle])
+  @@index([normalizedVendor])
+  @@index([modelKey])
 }
 
 model SyncProductVariant {
   id                String      @id                        // Shopify GID
   productId         String
   title             String
+  normalizedTitle   String      @default("")
+  optionText        String      @default("")
+  sizeValue         String?
+  colorValue        String?
   availableForSale  Boolean     @default(false)
   quantityAvailable Int?
   priceAmount       Decimal     @db.Decimal(10, 2)
@@ -80,6 +101,9 @@ model SyncProductVariant {
   product           SyncProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([productId])
+  @@index([sizeValue])
+  @@index([colorValue])
+  @@index([availableForSale])
 }
 
 model SyncProductImage {
@@ -104,4 +128,55 @@ model SyncLog {
   error            String?
   startedAt        DateTime  @default(now())
   completedAt      DateTime?
+}
+
+model CatalogEmbedding {
+  id           String      @id @default(cuid())
+  productId     String
+  model        String
+  vector       String
+  dimensions   Int
+  embeddingText String
+  contentHash  String
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  product      SyncProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, model])
+  @@index([productId])
+  @@index([contentHash])
+}
+
+model CatalogSynonym {
+  id        String   @id @default(cuid())
+  phrase     String
+  canonical String
+  kind      String
+  weight    Float    @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([phrase, canonical, kind])
+  @@index([phrase])
+  @@index([canonical])
+  @@index([kind])
+}
+
+model RetrievalLog {
+  id                 String   @id @default(cuid())
+  sessionId          String?
+  query              String
+  normalizedQuery    String   @default("")
+  intent             String
+  entities           String   @default("{}")
+  hardFilters        String   @default("{}")
+  lexicalCandidates  String   @default("[]")
+  semanticCandidates String   @default("[]")
+  finalCandidates    String   @default("[]")
+  toolName           String?
+  createdAt          DateTime @default(now())
+
+  @@index([sessionId])
+  @@index([intent])
+  @@index([createdAt])
 }

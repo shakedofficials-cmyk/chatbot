@@ -1,6 +1,22 @@
 import { prisma } from "../../db/client.js";
 import { env } from "../../config.js";
 import type { Product, ProductVariant, ProductImage } from "../../../shared/types.js";
+import {
+  buildEmbeddingText,
+  buildSearchText,
+  buildSizeText,
+  buildVariantOptionText,
+  extractColorTokens,
+  extractColorValue,
+  extractModelKey,
+  extractSizeValue,
+  extractStyleTokens,
+  inferCategory,
+  inferSilhouette,
+  normalizeText,
+} from "../retrieval/normalize.js";
+import { ensureDefaultCatalogSynonyms } from "../retrieval/synonyms.js";
+import { upsertProductEmbeddingIfNeeded } from "../retrieval/embeddings.js";
 
 /**
  * Fetch all products from Shopify's public REST API (/products.json).
@@ -104,15 +120,26 @@ function mapRestProduct(raw: any): Product {
 
 /** Upsert a single product (with variants & images) into Postgres. */
 async function upsertProduct(product: Product): Promise<void> {
-  const searchText = [
+  const searchText = buildSearchText([
     product.title,
     product.vendor,
     product.productType,
     product.tags.join(" "),
     product.description,
-  ]
-    .join(" ")
-    .toLowerCase();
+    product.metafields.styleTags?.join(" "),
+    product.metafields.materialSummary,
+    product.metafields.recommendedUse,
+    product.metafields.compareHighlights,
+  ]);
+  const embeddingText = buildEmbeddingText(product);
+  const modelKey = extractModelKey(product);
+  const silhouette = inferSilhouette(product);
+  const category = inferCategory(product);
+  const colorText = extractColorTokens(product).join(" ");
+  const styleText = extractStyleTokens(product).join(" ");
+  const sizeText = buildSizeText(product);
+  const availableVariantCount = product.variants.filter((variant) => variant.availableForSale).length;
+  const totalVariantCount = product.variants.length;
 
   await prisma.$transaction(async (tx) => {
     // Delete old relations so we can recreate them fresh
@@ -127,6 +154,15 @@ async function upsertProduct(product: Product): Promise<void> {
         description: product.description,
         vendor: product.vendor,
         productType: product.productType,
+        category,
+        normalizedTitle: normalizeText(product.title),
+        normalizedVendor: normalizeText(product.vendor),
+        normalizedType: normalizeText(product.productType),
+        modelKey,
+        silhouette,
+        colorText,
+        styleText,
+        sizeText,
         tags: JSON.stringify(product.tags),
         options: JSON.stringify(product.options),
         minPrice: parseFloat(product.priceRange.minVariantPrice.amount),
@@ -142,6 +178,9 @@ async function upsertProduct(product: Product): Promise<void> {
         recommendedUse: product.metafields.recommendedUse ?? null,
         compareHighlights: product.metafields.compareHighlights ?? null,
         searchText,
+        embeddingText,
+        availableVariantCount,
+        totalVariantCount,
         syncedAt: new Date(),
       },
       create: {
@@ -151,6 +190,15 @@ async function upsertProduct(product: Product): Promise<void> {
         description: product.description,
         vendor: product.vendor,
         productType: product.productType,
+        category,
+        normalizedTitle: normalizeText(product.title),
+        normalizedVendor: normalizeText(product.vendor),
+        normalizedType: normalizeText(product.productType),
+        modelKey,
+        silhouette,
+        colorText,
+        styleText,
+        sizeText,
         tags: JSON.stringify(product.tags),
         options: JSON.stringify(product.options),
         minPrice: parseFloat(product.priceRange.minVariantPrice.amount),
@@ -166,6 +214,9 @@ async function upsertProduct(product: Product): Promise<void> {
         recommendedUse: product.metafields.recommendedUse ?? null,
         compareHighlights: product.metafields.compareHighlights ?? null,
         searchText,
+        embeddingText,
+        availableVariantCount,
+        totalVariantCount,
       },
     });
 
@@ -176,6 +227,10 @@ async function upsertProduct(product: Product): Promise<void> {
           id: v.id,
           productId: product.id,
           title: v.title,
+          normalizedTitle: normalizeText(v.title),
+          optionText: buildVariantOptionText(v),
+          sizeValue: extractSizeValue(v),
+          colorValue: extractColorValue(v),
           availableForSale: v.availableForSale,
           quantityAvailable: v.quantityAvailable,
           priceAmount: parseFloat(v.price.amount),
@@ -208,6 +263,8 @@ async function upsertProduct(product: Product): Promise<void> {
       });
     }
   });
+
+  await upsertProductEmbeddingIfNeeded(product.id, embeddingText);
 }
 
 /** Full sync: fetch all Shopify products, upsert into Postgres, remove stale ones. */
@@ -221,6 +278,7 @@ export async function syncShopifyProducts(): Promise<{
   });
 
   try {
+    await ensureDefaultCatalogSynonyms();
     console.log("[sync] Fetching all products from Shopify REST API...");
     const products = await fetchAllShopifyProducts();
     console.log(`[sync] Fetched ${products.length} products from Shopify`);
