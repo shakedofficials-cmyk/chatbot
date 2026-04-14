@@ -1,5 +1,4 @@
-import type { MessageParam } from "@anthropic-ai/sdk/resources/messages.js";
-import type { Product, ProductComparison, CartAction, Cart, CartLine } from "../../../shared/types.js";
+import type { Product, ProductComparison, CartAction, CartLine } from "../../../shared/types.js";
 import { MOCK_PRODUCTS } from "../shopify/mock-data.js";
 import { answerPolicyQuestion } from "../knowledge/index.js";
 import { logEvent } from "../analytics/index.js";
@@ -18,7 +17,7 @@ const mockCarts = new Map<string, { id: string; checkoutUrl: string; lines: Cart
 
 export async function devOrchestrate(
   userMessage: string,
-  _conversationHistory: MessageParam[],
+  _conversationHistory: { role: string; content: string }[],
   sessionId: string,
   cartId: string | null
 ): Promise<OrchestratorResult> {

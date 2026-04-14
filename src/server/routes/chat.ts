@@ -1,9 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { nanoid } from "nanoid";
-import { orchestrate } from "../services/ai/orchestrator.js";
-import { devOrchestrate } from "../services/ai/dev-orchestrator.js";
 import { openaiOrchestrate } from "../services/ai/openai-orchestrator.js";
+import { devOrchestrate } from "../services/ai/dev-orchestrator.js";
 import { getOrCreateSession, updateSession, trimHistory } from "../services/session/index.js";
 import { logEvent } from "../services/analytics/index.js";
 import { aiProvider } from "../config.js";
@@ -18,11 +17,7 @@ const chatRequestSchema = z.object({
 });
 
 function pickOrchestrator() {
-  switch (aiProvider) {
-    case "openai": return openaiOrchestrate;
-    case "anthropic": return orchestrate;
-    default: return devOrchestrate;
-  }
+  return aiProvider === "openai" ? openaiOrchestrate : devOrchestrate;
 }
 
 router.post("/", async (req: Request, res: Response) => {
@@ -45,7 +40,7 @@ router.post("/", async (req: Request, res: Response) => {
     const runOrchestrate = pickOrchestrator();
     const result = await runOrchestrate(
       message,
-      trimHistory(session.conversationHistory) as any,
+      trimHistory(session.conversationHistory),
       sessionId,
       cartId
     );

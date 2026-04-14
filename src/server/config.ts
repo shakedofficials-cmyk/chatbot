@@ -4,10 +4,8 @@ import { z } from "zod";
 const envSchema = z.object({
   SHOPIFY_STORE_DOMAIN: z.string().default("demo.myshopify.com"),
   SHOPIFY_STOREFRONT_ACCESS_TOKEN: z.string().default(""),
-  ANTHROPIC_API_KEY: z.string().default(""),
   OPENAI_API_KEY: z.string().default(""),
-  ANTHROPIC_MODEL: z.string().default("claude-sonnet-4-20250514"),
-  OPENAI_MODEL: z.string().default("gpt-4o-mini"),
+  OPENAI_MODEL: z.string().default("gpt-4o"),
   DATABASE_URL: z.string().default("file:./prisma/dev.db"),
   REDIS_URL: z.string().optional(),
   PORT: z.coerce.number().default(3001),
@@ -21,7 +19,4 @@ export const env = envSchema.parse(process.env);
 export const usesMockShopify = !env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
 
 // Which AI backend to use
-export const aiProvider: "openai" | "anthropic" | "mock" =
-  env.OPENAI_API_KEY ? "openai" :
-  env.ANTHROPIC_API_KEY ? "anthropic" :
-  "mock";
+export const aiProvider: "openai" | "mock" = env.OPENAI_API_KEY ? "openai" : "mock";

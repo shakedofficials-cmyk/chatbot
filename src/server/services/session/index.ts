@@ -1,5 +1,9 @@
 import { prisma } from "../../db/client.js";
-import type { MessageParam } from "@anthropic-ai/sdk/resources/messages.js";
+
+export interface ConversationMessage {
+  role: "user" | "assistant";
+  content: string;
+}
 
 function parseJson<T>(value: string, fallback: T): T {
   try { return JSON.parse(value); } catch { return fallback; }
@@ -7,7 +11,7 @@ function parseJson<T>(value: string, fallback: T): T {
 
 interface SessionData {
   cartId: string | null;
-  conversationHistory: MessageParam[];
+  conversationHistory: ConversationMessage[];
   recentProducts: string[];
   preferences: Record<string, unknown>;
 }
@@ -21,7 +25,7 @@ export async function getOrCreateSession(sessionId: string): Promise<SessionData
 
   return {
     cartId: session.cartId,
-    conversationHistory: parseJson<MessageParam[]>(session.conversationLog, []),
+    conversationHistory: parseJson<ConversationMessage[]>(session.conversationLog, []),
     recentProducts: parseJson<string[]>(session.recentProducts, []),
     preferences: parseJson<Record<string, unknown>>(session.preferences, {}),
   };
@@ -31,7 +35,7 @@ export async function updateSession(
   sessionId: string,
   data: {
     cartId?: string;
-    conversationHistory?: MessageParam[];
+    conversationHistory?: ConversationMessage[];
     recentProducts?: string[];
     preferences?: Record<string, unknown>;
   }
@@ -54,7 +58,7 @@ export async function updateSession(
 }
 
 // Keep conversation history manageable — trim to last N exchanges
-export function trimHistory(history: MessageParam[], maxPairs = 20): MessageParam[] {
+export function trimHistory(history: ConversationMessage[], maxPairs = 20): ConversationMessage[] {
   if (history.length <= maxPairs * 2) return history;
   return history.slice(-maxPairs * 2);
 }

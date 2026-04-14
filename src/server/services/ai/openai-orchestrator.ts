@@ -1,10 +1,10 @@
 import OpenAI from "openai";
-import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
 import { env } from "../../config.js";
-import type { Product, ProductComparison, CartAction } from "../../../shared/types.js";
+import { AI_TOOLS } from "./tools.js";
 import { executeTool, type ToolResult } from "./tool-executor.js";
 import { executeMockTool } from "./mock-tool-executor.js";
 import { usesMockShopify } from "../../config.js";
+import type { Product, ProductComparison, CartAction } from "../../../shared/types.js";
 
 const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
 
@@ -40,6 +40,7 @@ RULES (non-negotiable):
 - When comparing products, use compare_products.
 - When adding to cart, first resolve the exact variant, then use cart_create (if needed) and cart_add_lines.
 - If you're not sure what they want, ask ONE short question — don't guess.
+- Log relevant analytics events using log_event.
 
 FORMAT — CRITICAL:
 - The frontend automatically renders product cards with images, prices, and "Add to Cart" buttons from the tool results. You do NOT need to list product names, prices, or details in your text.
@@ -47,176 +48,6 @@ FORMAT — CRITICAL:
 - For comparisons, same thing — the frontend renders a comparison table. Just add a brief opinion.
 - Do NOT use markdown bold (**text**) or any formatting. Write plain text only.
 - Keep replies to 1-2 casual sentences when products are being shown alongside your message.`;
-
-const OPENAI_TOOLS: ChatCompletionTool[] = [
-  {
-    type: "function",
-    function: {
-      name: "search_products",
-      description: "Search the ORJN product catalog. Use for any product discovery or browsing request.",
-      parameters: {
-        type: "object",
-        properties: {
-          query: { type: "string", description: "Search query, e.g. 'black sneakers' or 'adidas'" },
-          brand: { type: "string", description: "Filter by brand" },
-          max_price: { type: "number", description: "Maximum price filter" },
-          color: { type: "string", description: "Color filter" },
-          in_stock: { type: "boolean", description: "Only show in-stock products" },
-        },
-        required: ["query"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_product",
-      description: "Get full details for a specific product by handle or ID.",
-      parameters: {
-        type: "object",
-        properties: {
-          handle_or_id: { type: "string", description: "Product handle (e.g. 'adidas-samba-og-black')" },
-        },
-        required: ["handle_or_id"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_variant_by_options",
-      description: "Resolve a specific product variant by size/color. Use when user asks for a specific size.",
-      parameters: {
-        type: "object",
-        properties: {
-          handle_or_id: { type: "string", description: "Product handle" },
-          selected_options: { type: "object", description: "e.g. { \"Size\": \"43\" }", additionalProperties: { type: "string" } },
-        },
-        required: ["handle_or_id", "selected_options"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_variant_availability",
-      description: "Check availability and stock for a specific variant.",
-      parameters: {
-        type: "object",
-        properties: {
-          variant_id: { type: "string", description: "Variant GID" },
-          handle_or_id: { type: "string", description: "Product handle (fallback lookup)" },
-        },
-        required: ["variant_id"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "compare_products",
-      description: "Compare two or more products side by side.",
-      parameters: {
-        type: "object",
-        properties: {
-          product_ids: { type: "array", items: { type: "string" }, description: "Product handles to compare" },
-        },
-        required: ["product_ids"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "cart_create",
-      description: "Create a new shopping cart.",
-      parameters: { type: "object", properties: {} },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "cart_add_lines",
-      description: "Add a variant to the cart.",
-      parameters: {
-        type: "object",
-        properties: {
-          cart_id: { type: "string" },
-          variant_id: { type: "string" },
-          quantity: { type: "number" },
-        },
-        required: ["cart_id", "variant_id"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "cart_update_lines",
-      description: "Update quantity of an item in the cart. Set quantity to 0 to remove.",
-      parameters: {
-        type: "object",
-        properties: {
-          cart_id: { type: "string" },
-          line_id: { type: "string" },
-          quantity: { type: "number" },
-        },
-        required: ["cart_id", "line_id", "quantity"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_cart",
-      description: "Get current cart state.",
-      parameters: {
-        type: "object",
-        properties: { cart_id: { type: "string" } },
-        required: ["cart_id"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_checkout_url",
-      description: "Get checkout URL for the cart.",
-      parameters: {
-        type: "object",
-        properties: { cart_id: { type: "string" } },
-        required: ["cart_id"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "answer_policy_question",
-      description: "Answer store policy questions (shipping, returns, authenticity, sizing, care, support, payment).",
-      parameters: {
-        type: "object",
-        properties: { question: { type: "string" } },
-        required: ["question"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "log_event",
-      description: "Log an analytics event for tracking user behavior.",
-      parameters: {
-        type: "object",
-        properties: {
-          event_name: { type: "string", description: "Event name" },
-          payload: { type: "object", description: "Event data", additionalProperties: true },
-        },
-        required: ["event_name"],
-      },
-    },
-  },
-];
 
 interface OrchestratorResult {
   reply: string;
@@ -232,51 +63,42 @@ export async function openaiOrchestrate(
   sessionId: string,
   cartId: string | null
 ): Promise<OrchestratorResult> {
-  const messages: ChatCompletionMessageParam[] = [
-    { role: "system", content: SYSTEM_PROMPT },
-  ];
-
-  // Add conversation history
-  for (const msg of conversationHistory) {
-    messages.push({
-      role: msg.role as "user" | "assistant",
-      content: msg.content,
-    });
-  }
-
-  // Add current message with cart context
   const userContent = cartId
     ? `[Current cart ID: ${cartId}]\n\n${userMessage}`
     : userMessage;
-  messages.push({ role: "user", content: userContent });
+
+  const input = [
+    ...conversationHistory.map((msg) => ({
+      role: msg.role as "user" | "assistant",
+      content: msg.content,
+    })),
+    { role: "user" as const, content: userContent },
+  ];
 
   let collectedProducts: Product[] = [];
   let collectedComparison: ProductComparison | null = null;
   let collectedCartAction: CartAction | null = null;
   let currentCartId = cartId;
 
-  // Tool-use loop
-  let response = await openai.chat.completions.create({
+  // Initial response
+  let response = await openai.responses.create({
     model: env.OPENAI_MODEL,
-    max_tokens: 1024,
-    messages,
-    tools: OPENAI_TOOLS,
-    tool_choice: "auto",
-  });
+    instructions: SYSTEM_PROMPT,
+    input,
+    tools: AI_TOOLS,
+  } as any);
 
-  let choice = response.choices[0];
+  // Tool-use loop — continue until no function_call items remain in output
+  while ((response as any).output?.some((item: any) => item.type === "function_call")) {
+    const toolOutputs: Array<{ type: "function_call_output"; call_id: string; output: string }> = [];
 
-  while (choice.finish_reason === "tool_calls" && choice.message.tool_calls) {
-    // Add assistant message with tool calls
-    messages.push(choice.message);
+    for (const item of (response as any).output as any[]) {
+      if (item.type !== "function_call") continue;
 
-    // Execute each tool call
-    for (const toolCall of choice.message.tool_calls) {
-      if (toolCall.type !== "function") continue;
-      const fnName = toolCall.function.name;
+      const fnName: string = item.name;
       let fnArgs: Record<string, any>;
       try {
-        fnArgs = JSON.parse(toolCall.function.arguments);
+        fnArgs = JSON.parse(item.arguments);
       } catch {
         fnArgs = {};
       }
@@ -305,28 +127,32 @@ export async function openaiOrchestrate(
         collectedCartAction = { type: "checkout", checkoutUrl: result.checkoutUrl };
       }
 
-      messages.push({
-        role: "tool",
-        tool_call_id: toolCall.id,
-        content: result.content,
+      toolOutputs.push({
+        type: "function_call_output",
+        call_id: item.call_id,
+        output: result.content,
       });
     }
 
-    // Continue the conversation
-    response = await openai.chat.completions.create({
+    // Continue the conversation using previous_response_id
+    response = await openai.responses.create({
       model: env.OPENAI_MODEL,
-      max_tokens: 1024,
-      messages,
-      tools: OPENAI_TOOLS,
-      tool_choice: "auto",
-    });
-
-    choice = response.choices[0];
+      previous_response_id: (response as any).id,
+      input: toolOutputs,
+      tools: AI_TOOLS,
+    } as any);
   }
 
-  const reply = choice.message.content ?? "I couldn't process that. Could you try again?";
+  // Extract final text from output
+  const reply =
+    ((response as any).output as any[])
+      ?.filter((item: any) => item.type === "message")
+      .flatMap((item: any) => item.content ?? [])
+      .filter((c: any) => c.type === "output_text")
+      .map((c: any) => c.text)
+      .join("\n") || "I couldn't process that. Could you try again?";
 
-  // Deduplicate products
+  // Deduplicate products by handle
   const seen = new Set<string>();
   collectedProducts = collectedProducts.filter((p) => {
     if (seen.has(p.handle)) return false;
