@@ -36,7 +36,12 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
+app.get("/", (_req, res) => {
+  res.json({ status: "ok" });
+});
+
 // ── Start ──
-app.listen(env.PORT, () => {
-  console.log(`ORJN Concierge server running on port ${env.PORT}`);
+const PORT = parseInt(process.env.PORT ?? "3001", 10);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`ORJN Concierge server running on port ${PORT}`);
 });
