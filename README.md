@@ -1,5 +1,5 @@
 You are my senior full-stack Shopify app engineer.
-
+ana layth
 You are building a production-ready, fully custom AI shopping concierge for my Shopify store, ORJN.
 
 Context:
@@ -11,7 +11,7 @@ Context:
 - Tone: sharp, minimal, premium, direct, culturally fluent, not cheesy, not robotic, not corporate
 - Goal: build a next-level chatbot that functions as a sales concierge, not a generic support bubble
 
-What the chatbot must do:
+
 1. Recommend products based on natural language queries
 2. Search products by brand, style, color, category, price, and availability
 3. Check live stock and size availability
