@@ -1,0 +1,20 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "80258d2c939f1cc5d498e511869909e3"
+name = "ORJN Chatbot"
+application_url = "http://chatbot-production-e827.up.railway.app"
+embedded = false
+
+[webhooks]
+api_version = "2026-04"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "unauthenticated_write_checkouts,unauthenticated_read_product_listings"
+optional_scopes = [ ]
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [
+  "http://chatbot-production-e827.up.railway.app/auth/callback"
+]
