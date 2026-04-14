@@ -98,11 +98,14 @@ export async function searchProducts(
 
   // Filters
   if (filters.brand) {
-    andConditions.push({ vendor: { equals: filters.brand, mode: "insensitive" } });
+    andConditions.push({ vendor: { contains: filters.brand, mode: "insensitive" } });
   }
   if (filters.productType) {
     andConditions.push({
-      productType: { equals: filters.productType, mode: "insensitive" },
+      OR: [
+        { productType: { equals: filters.productType, mode: "insensitive" } },
+        { searchText: { contains: filters.productType, mode: "insensitive" } },
+      ],
     });
   }
   if (filters.category) {
