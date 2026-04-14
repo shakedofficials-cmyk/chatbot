@@ -6,9 +6,11 @@ import rateLimit from "express-rate-limit";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { env } from "./config.js";
+import { usesMockShopify } from "./config.js";
 import { prisma } from "./db/client.js";
 import chatRoutes from "./routes/chat.js";
 import analyticsRoutes from "./routes/analytics.js";
+import { syncShopifyProducts } from "./services/sync/shopify-sync.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -85,6 +87,20 @@ app.get("/", (_req: Request, res: Response) => {
   res.json({ status: "ok" });
 });
 
+// Manual sync trigger
+app.post("/api/sync", async (req: Request, res: Response) => {
+  if (env.SYNC_SECRET && req.headers["x-sync-secret"] !== env.SYNC_SECRET) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  try {
+    const result = await syncShopifyProducts();
+    res.json({ status: "ok", ...result });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 // Global error handler
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
@@ -96,6 +112,20 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 const PORT = parseInt(process.env.PORT ?? "3001", 10);
 const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`ORJN Concierge server running on port ${PORT}`);
+
+  // Non-blocking initial sync + periodic re-sync
+  if (!usesMockShopify) {
+    syncShopifyProducts()
+      .then((r) => console.log("[sync] Initial sync complete:", r))
+      .catch((e) => console.error("[sync] Initial sync failed:", e));
+
+    const intervalMs = env.SYNC_INTERVAL_MINUTES * 60 * 1000;
+    setInterval(() => {
+      syncShopifyProducts()
+        .then((r) => console.log("[sync] Periodic sync complete:", r))
+        .catch((e) => console.error("[sync] Periodic sync failed:", e));
+    }, intervalMs);
+  }
 });
 
 // Graceful shutdown

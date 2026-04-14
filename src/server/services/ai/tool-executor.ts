@@ -1,5 +1,6 @@
 import type { Product, ProductComparison, Cart, SearchFilters } from "../../../shared/types.js";
 import * as shopify from "../shopify/storefront.js";
+import * as dbProducts from "../products/db-products.js";
 import { answerPolicyQuestion } from "../knowledge/index.js";
 import { logEvent } from "../analytics/index.js";
 
@@ -60,7 +61,7 @@ async function handleSearchProducts(
     inStock: input.in_stock,
   };
 
-  const products = await shopify.searchProducts(input.query, filters);
+  const products = await dbProducts.searchProducts(input.query, filters);
 
   await logEvent(sessionId, "product_search", { query: input.query, resultCount: products.length });
 
@@ -81,8 +82,8 @@ async function handleSearchProducts(
 async function handleGetProduct(input: Record<string, any>): Promise<ToolResult> {
   const handleOrId = input.handle_or_id;
   const product = handleOrId.startsWith("gid://")
-    ? await shopify.getProductById(handleOrId)
-    : await shopify.getProductByHandle(handleOrId);
+    ? await dbProducts.getProductById(handleOrId)
+    : await dbProducts.getProductByHandle(handleOrId);
 
   if (!product) {
     return { content: `Product not found: ${handleOrId}` };
@@ -95,7 +96,7 @@ async function handleGetProduct(input: Record<string, any>): Promise<ToolResult>
 }
 
 async function handleGetVariantByOptions(input: Record<string, any>): Promise<ToolResult> {
-  const { product, variant } = await shopify.getVariantByOptions(
+  const { product, variant } = await dbProducts.getVariantByOptions(
     input.handle_or_id,
     input.selected_options
   );
@@ -127,7 +128,7 @@ async function handleGetVariantByOptions(input: Record<string, any>): Promise<To
 }
 
 async function handleGetVariantAvailability(input: Record<string, any>): Promise<ToolResult> {
-  const result = await shopify.getVariantAvailability(input.variant_id, input.handle_or_id);
+  const result = await dbProducts.getVariantAvailability(input.variant_id, input.handle_or_id);
 
   return {
     content: JSON.stringify({
@@ -154,8 +155,8 @@ async function handleCompareProducts(
   const products: Product[] = [];
   for (const id of ids) {
     const product = id.startsWith("gid://")
-      ? await shopify.getProductById(id)
-      : await shopify.getProductByHandle(id);
+      ? await dbProducts.getProductById(id)
+      : await dbProducts.getProductByHandle(id);
     if (product) products.push(product);
   }
 

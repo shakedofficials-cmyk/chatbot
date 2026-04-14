@@ -13,6 +13,8 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(3001),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   CORS_ORIGIN: z.string().default("*"),
+  SYNC_SECRET: z.string().optional(),
+  SYNC_INTERVAL_MINUTES: z.coerce.number().default(15),
 });
 
 export const env = envSchema.parse(process.env);

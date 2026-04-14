@@ -82,6 +82,18 @@ export const GET_PRODUCTS_BY_IDS = `
   }
 `;
 
+// ── Sync: paginate all products ──
+
+export const LIST_ALL_PRODUCTS = `
+  ${PRODUCT_FRAGMENT}
+  query ListAllProducts($first: Int!, $after: String) {
+    products(first: $first, after: $after) {
+      pageInfo { hasNextPage endCursor }
+      edges { node { ...ProductFields } }
+    }
+  }
+`;
+
 // ── Cart mutations ──
 
 export const CART_CREATE = `

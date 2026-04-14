@@ -27,3 +27,81 @@ model AnalyticsEvent {
   createdAt DateTime    @default(now())
   session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 }
+
+// ── Shopify product sync tables ──
+
+model SyncProduct {
+  id                String              @id                // Shopify GID
+  handle            String              @unique
+  title             String
+  description       String
+  vendor            String
+  productType       String
+  tags              String              @default("[]")     // JSON array
+  options           String              @default("[]")     // JSON array of {name, values}
+  minPrice          Decimal             @db.Decimal(10, 2)
+  maxPrice          Decimal             @db.Decimal(10, 2)
+  priceCurrency     String              @default("USD")
+  fitProfile        String?
+  trueToSizeNote    String?
+  authenticityNote  String?
+  styleTags         String?                                // JSON array
+  materialSummary   String?
+  recommendedUse    String?
+  compareHighlights String?
+  searchText        String              @default("")       // lowercased title+vendor+type+tags+desc
+  syncedAt          DateTime            @default(now())
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  variants          SyncProductVariant[]
+  images            SyncProductImage[]
+
+  @@index([vendor])
+  @@index([productType])
+  @@index([minPrice])
+}
+
+model SyncProductVariant {
+  id                String      @id                        // Shopify GID
+  productId         String
+  title             String
+  availableForSale  Boolean     @default(false)
+  quantityAvailable Int?
+  priceAmount       Decimal     @db.Decimal(10, 2)
+  priceCurrency     String      @default("USD")
+  compareAtPrice    Decimal?    @db.Decimal(10, 2)
+  compareAtCurrency String?
+  selectedOptions   String      @default("[]")             // JSON
+  imageUrl          String?
+  imageAltText      String?
+  imageWidth        Int?
+  imageHeight       Int?
+  sortOrder         Int         @default(0)
+  product           SyncProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+model SyncProductImage {
+  id        String      @id @default(cuid())
+  productId String
+  url       String
+  altText   String?
+  width     Int?
+  height    Int?
+  sortOrder Int         @default(0)
+  product   SyncProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+model SyncLog {
+  id               String    @id @default(cuid())
+  status           String                            // "started" | "completed" | "failed"
+  productsTotal    Int       @default(0)
+  productsUpserted Int       @default(0)
+  productsDeleted  Int       @default(0)
+  error            String?
+  startedAt        DateTime  @default(now())
+  completedAt      DateTime?
+}
