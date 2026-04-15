@@ -12,6 +12,13 @@ import { logRetrievalEvent } from "../retrieval/logging.js";
 import { normalizeText } from "../retrieval/normalize.js";
 import { understandCatalogQuery } from "../retrieval/query-understanding.js";
 import { expandQueryWithSynonyms } from "../retrieval/synonyms.js";
+import {
+  findBestVariantMatch,
+  findSizeOptionValue,
+  normalizeVariantSize,
+  resolveUserSize,
+  sizeToEU,
+} from "../size-resolution.js";
 
 const productInclude = {
   variants: { orderBy: { sortOrder: "asc" as const } },
@@ -146,14 +153,30 @@ function buildWhere(filters: SearchFilters): Prisma.SyncProductWhereInput {
     and.push({ variants: { some: { availableForSale: true } } });
   }
   if (filters.size) {
-    and.push({
-      variants: {
-        some: {
-          sizeValue: { equals: filters.size, mode: "insensitive" },
-          ...(filters.inStock ? { availableForSale: true } : {}),
+    try {
+      const resolved = resolveUserSize(filters.size);
+      const eu = sizeToEU(resolved.value, resolved.system);
+      // Cast needed until `prisma generate` picks up the new sizeEU column
+      const sizeEUFilter = { sizeEU: { equals: new Prisma.Decimal(eu) } } as Prisma.SyncProductVariantWhereInput;
+      and.push({
+        variants: {
+          some: {
+            ...sizeEUFilter,
+            ...(filters.inStock ? { availableForSale: true } : {}),
+          },
         },
-      },
-    });
+      });
+    } catch {
+      // Unparseable size — fall back to raw text match
+      and.push({
+        variants: {
+          some: {
+            sizeValue: { equals: filters.size, mode: "insensitive" },
+            ...(filters.inStock ? { availableForSale: true } : {}),
+          },
+        },
+      });
+    }
   }
 
   if (and.length > 0) {
@@ -247,15 +270,29 @@ async function lexicalSearch(
     );
   }
   if (filters.size) {
-    clauses.push(
-      Prisma.sql`EXISTS (
-        SELECT 1
-        FROM "SyncProductVariant" v
-        WHERE v."productId" = p."id"
-          AND COALESCE(v."sizeValue", '') ILIKE ${filters.size}
-          ${filters.inStock ? Prisma.sql`AND v."availableForSale" = true` : Prisma.empty}
-      )`
-    );
+    try {
+      const resolved = resolveUserSize(filters.size);
+      const eu = sizeToEU(resolved.value, resolved.system);
+      clauses.push(
+        Prisma.sql`EXISTS (
+          SELECT 1
+          FROM "SyncProductVariant" v
+          WHERE v."productId" = p."id"
+            AND v."sizeEU" = ${eu}::decimal
+            ${filters.inStock ? Prisma.sql`AND v."availableForSale" = true` : Prisma.empty}
+        )`
+      );
+    } catch {
+      clauses.push(
+        Prisma.sql`EXISTS (
+          SELECT 1
+          FROM "SyncProductVariant" v
+          WHERE v."productId" = p."id"
+            AND COALESCE(v."sizeValue", '') ILIKE ${filters.size}
+            ${filters.inStock ? Prisma.sql`AND v."availableForSale" = true` : Prisma.empty}
+        )`
+      );
+    }
   }
 
   const hasWhereClauses = clauses.length > 0;
@@ -405,17 +442,21 @@ function rerankProduct(params: {
   }
 
   if (params.filters.size) {
-    const matchingSize = inStockVariants.find((variant) =>
-      variant.selectedOptions.some(
-        (option) =>
-          option.name.toLowerCase() === "size" &&
-          normalizeText(option.value) === normalizeText(params.filters.size)
-      )
-    );
-
-    if (matchingSize) {
-      score += 0.25;
-      reasoning.push(`size ${params.filters.size} available`);
+    try {
+      const resolved = resolveUserSize(params.filters.size);
+      const targetEU = sizeToEU(resolved.value, resolved.system);
+      const matchingSize = inStockVariants.find((variant) => {
+        const raw = findSizeOptionValue(variant.selectedOptions);
+        if (!raw) return false;
+        const norm = normalizeVariantSize(raw);
+        return norm !== null && norm.value === targetEU;
+      });
+      if (matchingSize) {
+        score += 0.25;
+        reasoning.push(`size ${params.filters.size} available`);
+      }
+    } catch {
+      // Unparseable size — skip the bonus
     }
   }
 
@@ -563,6 +604,36 @@ export async function getVariantByOptions(
 
   if (!product) throw new Error(`Product not found: ${handleOrId}`);
 
+  // Separate size keys from non-size keys so size is matched via EU normalisation
+  const sizeEntry = Object.entries(selectedOptions).find(([k]) =>
+    k.toLowerCase().includes("size")
+  );
+  const nonSizeEntries = Object.entries(selectedOptions).filter(
+    ([k]) => !k.toLowerCase().includes("size")
+  );
+
+  if (sizeEntry) {
+    const [, sizeValue] = sizeEntry;
+    const matchResult = findBestVariantMatch(product.variants, sizeValue);
+
+    let candidate = matchResult.exactMatch;
+
+    // If there are additional option axes (e.g. Color), verify them too
+    if (candidate && nonSizeEntries.length > 0) {
+      const allMatch = nonSizeEntries.every(([name, val]) =>
+        candidate!.selectedOptions.some(
+          (o) =>
+            o.name.toLowerCase() === name.toLowerCase() &&
+            o.value.toLowerCase() === val.toLowerCase()
+        )
+      );
+      if (!allMatch) candidate = null;
+    }
+
+    return { product, variant: candidate };
+  }
+
+  // No size option — exact match on every option
   const variant =
     product.variants.find((entry) =>
       Object.entries(selectedOptions).every(([name, value]) =>
@@ -634,16 +705,8 @@ export async function getSizeAvailability(
     return { product: null, matchingVariant: null, alternatives };
   }
 
-  const matchingVariant =
-    product.variants.find(
-      (variant) =>
-        variant.availableForSale &&
-        variant.selectedOptions.some(
-          (option) =>
-            option.name.toLowerCase() === "size" &&
-            normalizeText(option.value) === normalizeText(input.size)
-        )
-    ) ?? null;
+  const sizeMatch = findBestVariantMatch(product.variants, input.size);
+  const matchingVariant = sizeMatch.exactMatchAvailable;
 
   const alternatives = matchingVariant || !input.query
     ? []

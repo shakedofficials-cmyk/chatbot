@@ -4,6 +4,11 @@ import { answerPolicyQuestion } from "../knowledge/index.js";
 import { logEvent } from "../analytics/index.js";
 import type { ToolResult } from "./tool-executor.js";
 import { nanoid } from "nanoid";
+import {
+  findBestVariantMatch,
+  findSizeOptionValue,
+  normalizeVariantSize,
+} from "../size-resolution.js";
 
 // In-memory mock carts
 const mockCarts = new Map<string, Cart>();
@@ -84,16 +89,20 @@ export async function executeMockTool(
     case "get_size_availability": {
       const size = String(input.size ?? "");
       const query = `${input.query ?? ""} ${input.handle_or_id ?? ""}`.toLowerCase();
-      const product = MOCK_PRODUCTS.find((p) =>
-        query.includes(p.handle.toLowerCase()) ||
-        query.includes(p.title.toLowerCase()) ||
-        query.includes(p.vendor.toLowerCase())
-      ) ?? MOCK_PRODUCTS[0];
+      const product =
+        MOCK_PRODUCTS.find(
+          (p) =>
+            query.includes(p.handle.toLowerCase()) ||
+            query.includes(p.title.toLowerCase()) ||
+            query.includes(p.vendor.toLowerCase())
+        ) ?? MOCK_PRODUCTS[0];
 
-      const variant = product.variants.find((v) =>
-        v.availableForSale &&
-        v.selectedOptions.some((o) => o.name === "Size" && o.value.toLowerCase() === size.toLowerCase())
-      ) ?? null;
+      const matchResult = findBestVariantMatch(product.variants, size);
+      const variant = matchResult.exactMatchAvailable;
+      const closestSizes = matchResult.closestMatches.map((v) => {
+        const raw = findSizeOptionValue(v.selectedOptions);
+        return raw ? (normalizeVariantSize(raw)?.value ?? raw) : v.title;
+      });
 
       await logEvent(sessionId, "size_availability_requested", {
         product: product.handle,
@@ -104,9 +113,15 @@ export async function executeMockTool(
       return {
         content: JSON.stringify({
           available: Boolean(variant),
+          has_requested_size: Boolean(variant),
           requestedSize: size,
           variantId: variant?.id ?? null,
           productHandle: product.handle,
+          available_sizes: matchResult.availableSizes,
+          closest_sizes: variant ? [] : closestSizes,
+          message: variant
+            ? null
+            : `Size ${size} not available. Closest in stock: ${closestSizes.join(", ") || "none"}.`,
         }),
         products: [product],
       };
@@ -128,31 +143,71 @@ export async function executeMockTool(
     }
 
     case "get_variant_by_options": {
-      const product = MOCK_PRODUCTS.find((p) => p.handle === input.handle_or_id || p.id === input.handle_or_id);
+      const product = MOCK_PRODUCTS.find(
+        (p) => p.handle === input.handle_or_id || p.id === input.handle_or_id
+      );
       if (!product) return { content: `Product not found: ${input.handle_or_id}` };
 
-      const opts = input.selected_options ?? {};
-      const variant = product.variants.find((v) =>
-        Object.entries(opts).every(([name, value]) =>
-          v.selectedOptions.some((o) => o.name.toLowerCase() === (name as string).toLowerCase() && o.value.toLowerCase() === (value as string).toLowerCase())
-        )
-      );
+      const opts: Record<string, string> = input.selected_options ?? {};
+      const sizeKey = Object.keys(opts).find((k) => k.toLowerCase().includes("size"));
+      const sizeInput: string | undefined = sizeKey ? opts[sizeKey] : undefined;
+
+      const matchResult = sizeInput
+        ? findBestVariantMatch(product.variants, sizeInput)
+        : null;
+
+      const availableSizes = matchResult?.availableSizes ?? [];
+      const closestSizes = (matchResult?.closestMatches ?? []).map((v) => {
+        const raw = findSizeOptionValue(v.selectedOptions);
+        return raw ? (normalizeVariantSize(raw)?.value ?? raw) : v.title;
+      });
+
+      // Use size-resolved match when a size key is present, otherwise exact-match all opts
+      const variant =
+        matchResult
+          ? matchResult.exactMatch
+          : product.variants.find((v) =>
+              Object.entries(opts).every(([name, value]) =>
+                v.selectedOptions.some(
+                  (o) =>
+                    o.name.toLowerCase() === name.toLowerCase() &&
+                    o.value.toLowerCase() === value.toLowerCase()
+                )
+              )
+            ) ?? null;
 
       if (!variant) {
-        const available = product.variants.filter((v) => v.availableForSale).map((v) => v.selectedOptions.map((o) => `${o.name}: ${o.value}`).join(", "));
-        return { content: `Variant not found. Available: ${available.join(" | ")}`, products: [product] };
+        return {
+          content: JSON.stringify({
+            found: false,
+            has_requested_size: false,
+            available_sizes: availableSizes,
+            closest_sizes: closestSizes,
+            message: sizeInput
+              ? `Size ${sizeInput} not in stock. Closest: ${closestSizes.join(", ") || "none"}.`
+              : `Variant not found.`,
+          }),
+          products: [product],
+        };
       }
 
-      await logEvent(sessionId, "size_availability_requested", { product: product.handle, variant: variant.id });
+      await logEvent(sessionId, "size_availability_requested", {
+        product: product.handle,
+        variant: variant.id,
+      });
 
       return {
         content: JSON.stringify({
+          found: true,
           variantId: variant.id,
           title: variant.title,
           price: `${variant.price.amount} ${variant.price.currencyCode}`,
           available: variant.availableForSale,
           quantityAvailable: variant.quantityAvailable,
           selectedOptions: variant.selectedOptions,
+          has_requested_size: true,
+          available_sizes: availableSizes,
+          closest_sizes: [],
         }),
         products: [product],
       };

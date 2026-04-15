@@ -13,7 +13,7 @@ export const AI_TOOLS = [
         },
         brand: { type: "string", description: "Brand/vendor filter, e.g. 'Nike' or 'Adidas'" },
         model: { type: "string", description: "Model or silhouette filter, e.g. 'Dunk', 'Samba', 'Gazelle'" },
-        size: { type: "string", description: "Requested size, e.g. '44'" },
+        size: { type: "string", description: "Requested size — EU ('44'), US ('10 US'), or UK ('9 UK'). Normalised automatically." },
         min_price: { type: "number", description: "Minimum price filter" },
         max_price: { type: "number", description: "Maximum price filter" },
         category: { type: "string", description: "Category or type such as 'sneakers' or 'runner'" },
@@ -44,7 +44,7 @@ export const AI_TOOLS = [
     type: "function" as const,
     name: "get_size_availability",
     description:
-      "Check whether a requested size is available for a specific product or the best matching retrieved product. Use this for questions like 'do you have dunks size 44'.",
+      "Check whether a requested size is available for a specific product or the best matching retrieved product. Use this for questions like 'do you have dunks size 44'. Accepts EU sizes ('44'), US sizes ('10 US'), or UK sizes ('9 UK'). Always returns available_sizes, has_requested_size, and closest_sizes so you can suggest alternatives when the exact size is out of stock.",
     parameters: {
       type: "object",
       properties: {
@@ -58,7 +58,7 @@ export const AI_TOOLS = [
         },
         size: {
           type: "string",
-          description: "Requested size value such as '44'",
+          description: "Requested size — EU ('44', '44.5'), US ('10 US', '10.5 US'), or UK ('9 UK'). Default system is EU.",
         },
       },
       required: ["size"],
@@ -105,14 +105,14 @@ export const AI_TOOLS = [
     type: "function" as const,
     name: "get_variant_by_options",
     description:
-      "Resolve an exact variant from selected options like size and color when the specific product is already known.",
+      "Resolve an exact variant from selected options like size and color when the specific product is already known. Size is normalised automatically — pass '44', '10 US', or '9 UK' and the system resolves to the correct EU variant. Returns has_requested_size, available_sizes, and closest_sizes so you can respond accurately even when the exact size is out of stock.",
     parameters: {
       type: "object",
       properties: {
         handle_or_id: { type: "string", description: "Product handle or Shopify product GID" },
         selected_options: {
           type: "object",
-          description: "Key-value pairs like { \"Size\": \"44\", \"Color\": \"Black\" }",
+          description: "Key-value pairs like { \"Size\": \"44\", \"Color\": \"Black\" }. Size may be EU, US, or UK — it is resolved automatically.",
           additionalProperties: { type: "string" },
         },
       },
@@ -123,7 +123,7 @@ export const AI_TOOLS = [
     type: "function" as const,
     name: "get_variant_availability",
     description:
-      "Check availability for a specific variant ID on a known product.",
+      "Check availability for a specific variant ID on a known product. Returns available_sizes and closest_sizes alongside the availability status.",
     parameters: {
       type: "object",
       properties: {

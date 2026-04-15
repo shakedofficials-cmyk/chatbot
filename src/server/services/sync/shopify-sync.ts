@@ -9,6 +9,7 @@ import {
   extractColorTokens,
   extractColorValue,
   extractModelKey,
+  extractSizeEU,
   extractSizeValue,
   extractStyleTokens,
   inferCategory,
@@ -93,7 +94,7 @@ async function fetchAllStorefrontProducts(): Promise<Product[]> {
 /** Map a Shopify REST API product to our shared Product type. */
 function mapRestProduct(raw: any): Product {
   const variants: ProductVariant[] = (raw.variants ?? []).map(
-    (v: any, i: number): ProductVariant => {
+    (v: any, _i: number): ProductVariant => {
       // Build selectedOptions from option1/option2/option3
       const selectedOptions: { name: string; value: string }[] = [];
       const options: any[] = raw.options ?? [];
@@ -273,6 +274,7 @@ async function upsertProduct(product: Product): Promise<void> {
           normalizedTitle: normalizeText(v.title),
           optionText: buildVariantOptionText(v),
           sizeValue: extractSizeValue(v),
+          sizeEU: extractSizeEU(v),
           colorValue: extractColorValue(v),
           availableForSale: v.availableForSale,
           quantityAvailable: v.quantityAvailable,

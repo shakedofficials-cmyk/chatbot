@@ -107,6 +107,7 @@ model SyncProductVariant {
   normalizedTitle   String      @default("")
   optionText        String      @default("")
   sizeValue         String?
+  sizeEU            Decimal?    @db.Decimal(5, 1)   // normalised EU size for reliable filtering
   colorValue        String?
   availableForSale  Boolean     @default(false)
   quantityAvailable Int?
@@ -124,6 +125,7 @@ model SyncProductVariant {
 
   @@index([productId])
   @@index([sizeValue])
+  @@index([sizeEU])
   @@index([colorValue])
   @@index([availableForSale])
 }

@@ -7,6 +7,11 @@ import {
   enrichSearchWithContext,
   enrichSizeAvailabilityWithContext,
 } from "../retrieval/contextual-search.js";
+import {
+  findBestVariantMatch,
+  findSizeOptionValue,
+  normalizeVariantSize,
+} from "../size-resolution.js";
 
 export interface ToolResult {
   content: string;
@@ -147,11 +152,7 @@ async function handleGetSizeAvailability(
   });
 
   const result = await dbProducts.getSizeAvailability(
-    {
-      query: enriched.query,
-      handleOrId: enriched.handleOrId,
-      size: String(input.size),
-    },
+    { query: enriched.query, handleOrId: enriched.handleOrId, size: String(input.size) },
     sessionId
   );
 
@@ -165,17 +166,33 @@ async function handleGetSizeAvailability(
 
   if (!result.product) {
     return {
-      content: `No exact product match found for size ${input.size}.`,
+      content: JSON.stringify({
+        found: false,
+        has_requested_size: false,
+        available_sizes: [],
+        closest_sizes: [],
+        message: `No product match found for size ${input.size}.`,
+      }),
       products: result.alternatives,
     };
   }
+
+  const matchResult = findBestVariantMatch(result.product.variants, String(input.size));
+  const closestSizes = matchResult.closestMatches.map((v) => {
+    const raw = findSizeOptionValue(v.selectedOptions);
+    return raw ? (normalizeVariantSize(raw)?.value ?? raw) : v.title;
+  });
 
   if (!result.matchingVariant) {
     return {
       content: JSON.stringify({
         available: false,
+        has_requested_size: false,
         requestedSize: String(input.size),
         productHandle: result.product.handle,
+        available_sizes: matchResult.availableSizes,
+        closest_sizes: closestSizes,
+        message: `Size ${input.size} not available. Closest in stock: ${closestSizes.join(", ") || "none"}.`,
       }),
       products: [result.product, ...result.alternatives].slice(0, 4),
     };
@@ -184,10 +201,13 @@ async function handleGetSizeAvailability(
   return {
     content: JSON.stringify({
       available: true,
+      has_requested_size: true,
       requestedSize: String(input.size),
       variantId: result.matchingVariant.id,
       price: result.matchingVariant.price,
       productHandle: result.product.handle,
+      available_sizes: matchResult.availableSizes,
+      closest_sizes: [],
     }),
     products: [result.product],
   };
@@ -221,20 +241,48 @@ async function handleGetVariantByOptions(input: Record<string, any>): Promise<To
     input.selected_options
   );
 
-  if (!variant) {
-    const availableOptions = product.variants
-      .filter((entry) => entry.availableForSale)
-      .map((entry) => entry.selectedOptions.map((option) => `${option.name}: ${option.value}`).join(", "))
-      .slice(0, 5);
+  // Identify the size input (if any) to build a rich size context
+  const sizeKey = Object.keys(input.selected_options ?? {}).find((k) =>
+    k.toLowerCase().includes("size")
+  );
+  const sizeInput: string | undefined = sizeKey
+    ? String(input.selected_options[sizeKey])
+    : undefined;
 
+  const matchResult = sizeInput
+    ? findBestVariantMatch(product.variants, sizeInput)
+    : null;
+
+  const availableSizes = matchResult?.availableSizes ?? [];
+  const closestSizes = (matchResult?.closestMatches ?? []).map((v) => {
+    const raw = findSizeOptionValue(v.selectedOptions);
+    return raw ? (normalizeVariantSize(raw)?.value ?? raw) : v.title;
+  });
+
+  if (!variant) {
     return {
-      content: `That exact variant is not available. Available options: ${availableOptions.join(" | ") || "none in stock"}`,
+      content: JSON.stringify({
+        found: false,
+        has_requested_size: false,
+        available_sizes: availableSizes,
+        closest_sizes: closestSizes,
+        message: sizeInput
+          ? `Size ${sizeInput} not in stock. Closest available: ${closestSizes.join(", ") || "none"}.`
+          : `Variant not available. In-stock options: ${
+              product.variants
+                .filter((v) => v.availableForSale)
+                .map((v) => v.selectedOptions.map((o) => `${o.name}: ${o.value}`).join(", "))
+                .slice(0, 5)
+                .join(" | ") || "none"
+            }`,
+      }),
       products: [product],
     };
   }
 
   return {
     content: JSON.stringify({
+      found: true,
       variantId: variant.id,
       title: variant.title,
       price: variant.price,
@@ -242,6 +290,9 @@ async function handleGetVariantByOptions(input: Record<string, any>): Promise<To
       available: variant.availableForSale,
       quantityAvailable: variant.quantityAvailable,
       selectedOptions: variant.selectedOptions,
+      has_requested_size: true,
+      available_sizes: availableSizes,
+      closest_sizes: [],
     }),
     products: [product],
   };
@@ -250,10 +301,32 @@ async function handleGetVariantByOptions(input: Record<string, any>): Promise<To
 async function handleGetVariantAvailability(input: Record<string, any>): Promise<ToolResult> {
   const result = await dbProducts.getVariantAvailability(input.variant_id, input.handle_or_id);
 
+  // Load the full product to build available-sizes context
+  const product = input.handle_or_id.startsWith("gid://")
+    ? await dbProducts.getProductById(input.handle_or_id)
+    : await dbProducts.getProductByHandle(input.handle_or_id);
+
+  const sizeRaw = result.variant
+    ? findSizeOptionValue(result.variant.selectedOptions)
+    : null;
+
+  const matchResult =
+    product && sizeRaw ? findBestVariantMatch(product.variants, sizeRaw) : null;
+
+  const closestSizes = result.available
+    ? []
+    : (matchResult?.closestMatches ?? []).map((v) => {
+        const raw = findSizeOptionValue(v.selectedOptions);
+        return raw ? (normalizeVariantSize(raw)?.value ?? raw) : v.title;
+      });
+
   return {
     content: JSON.stringify({
       available: result.available,
       quantityAvailable: result.quantityAvailable,
+      has_requested_size: result.available,
+      available_sizes: matchResult?.availableSizes ?? [],
+      closest_sizes: closestSizes,
       variant: result.variant
         ? {
             title: result.variant.title,

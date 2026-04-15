@@ -1,5 +1,6 @@
 import { createHash } from "crypto";
 import type { Product, ProductVariant } from "../../../shared/types.js";
+import { normalizeVariantSize } from "../size-resolution.js";
 
 export const DEFAULT_BRANDS = [
   "adidas",
@@ -154,8 +155,18 @@ export function hashText(value: string): string {
 }
 
 export function extractSizeValue(variant: ProductVariant): string | null {
-  const sizeOption = variant.selectedOptions.find((option) => option.name.toLowerCase() === "size");
+  // Match any option whose name contains "size" (e.g. "EU Size", "Men's Size", "Shoe Size")
+  const sizeOption = variant.selectedOptions.find((option) =>
+    option.name.toLowerCase().includes("size")
+  );
   return sizeOption?.value ?? null;
+}
+
+/** Returns the normalised EU numeric size for a variant, or null if not parseable. */
+export function extractSizeEU(variant: ProductVariant): number | null {
+  const raw = extractSizeValue(variant);
+  if (!raw) return null;
+  return normalizeVariantSize(raw)?.value ?? null;
 }
 
 export function extractColorValue(variant: ProductVariant): string | null {
