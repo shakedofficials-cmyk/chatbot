@@ -34,7 +34,6 @@ function createSessionId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
   }
-
   return `${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
 }
 
@@ -44,18 +43,22 @@ function ensureStyles(): void {
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Jost:wght@700;800;900&display=swap');
+
     :root {
-      --orjn-bg: #0a0a0a;
+      --orjn-bg: #0A0A0A;
       --orjn-bg-elevated: #141414;
       --orjn-bg-soft: #1a1a1a;
-      --orjn-border: rgba(255, 255, 255, 0.12);
+      --orjn-border: #333333;
       --orjn-border-strong: rgba(255, 255, 255, 0.22);
-      --orjn-text: #f5f1e8;
-      --orjn-text-muted: rgba(245, 241, 232, 0.62);
-      --orjn-text-subtle: rgba(245, 241, 232, 0.42);
-      --orjn-accent: #efe6d5;
-      --orjn-shadow: 0 30px 80px rgba(0, 0, 0, 0.42);
-      --orjn-radius: 10px;
+      --orjn-text: #FFFFFF;
+      --orjn-text-muted: #888888;
+      --orjn-text-subtle: #444444;
+      --orjn-volt: #C6FF2E;
+      --orjn-infrared: #FF5A36;
+      --orjn-shadow:
+        0 48px 120px rgba(0, 0, 0, 0.9),
+        0 0 0 1px #1a1a1a;
     }
 
     #orjn-concierge-shell {
@@ -63,277 +66,406 @@ function ensureStyles(): void {
       right: 22px;
       bottom: 22px;
       z-index: 2147483647;
-      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
       color: var(--orjn-text);
     }
 
+    /* ─── LAUNCHER ─────────────────────────────────────── */
     #orjn-launcher {
-      width: 64px;
-      height: 64px;
+      width: 60px;
+      height: 60px;
       display: grid;
       place-items: center;
-      border: 1px solid var(--orjn-border-strong);
-      border-radius: 12px;
-      background:
-        radial-gradient(circle at top, rgba(255,255,255,0.12), transparent 52%),
-        linear-gradient(145deg, #181818, #060606);
+      border: 2px solid var(--orjn-border);
+      border-radius: 0;
+      background: var(--orjn-bg-elevated);
       color: var(--orjn-text);
       box-shadow: var(--orjn-shadow);
       cursor: pointer;
-      transition: transform 160ms ease, border-color 160ms ease, opacity 160ms ease;
+      transition: border-color 120ms ease, background 120ms ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #orjn-launcher::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: var(--orjn-volt);
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: transform 200ms ease;
     }
 
     #orjn-launcher:hover,
     #orjn-launcher:focus-visible {
-      transform: translateY(-2px);
-      border-color: rgba(255, 255, 255, 0.36);
+      border-color: var(--orjn-volt);
       outline: none;
     }
 
+    #orjn-launcher:hover::after,
+    #orjn-launcher:focus-visible::after {
+      transform: scaleX(1);
+    }
+
+    /* ─── PANEL ─────────────────────────────────────────── */
     #orjn-panel {
       width: min(420px, calc(100vw - 28px));
       height: min(720px, calc(100vh - 28px));
       display: none;
       flex-direction: column;
       overflow: hidden;
-      border: 1px solid var(--orjn-border);
-      border-radius: 18px;
-      background:
-        linear-gradient(180deg, rgba(255,255,255,0.04), transparent 18%),
-        linear-gradient(180deg, #0f0f0f 0%, #090909 100%);
+      border: 2px solid var(--orjn-border);
+      border-radius: 0;
+      background: var(--orjn-bg);
       box-shadow: var(--orjn-shadow);
-      backdrop-filter: blur(14px);
     }
 
     #orjn-panel.open {
       display: flex;
-      animation: orjn-panel-enter 180ms ease;
+      animation: orjn-panel-enter 220ms cubic-bezier(0.22, 1, 0.36, 1);
     }
 
+    /* ─── HEADER ────────────────────────────────────────── */
     .orjn-header {
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
       gap: 12px;
-      padding: 18px 18px 16px;
-      border-bottom: 1px solid var(--orjn-border);
-      background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0));
+      padding: 16px 16px 14px;
+      border-bottom: 2px solid var(--orjn-border);
+      background: var(--orjn-bg-elevated);
+      flex-shrink: 0;
     }
 
     .orjn-header-copy p {
       margin: 0;
       text-transform: uppercase;
-      letter-spacing: 0.28em;
-      font-size: 10px;
-      color: var(--orjn-text-subtle);
+      letter-spacing: 0.24em;
+      font-size: 9px;
+      color: var(--orjn-text-muted);
+      font-family: 'Inter', monospace;
     }
 
     .orjn-header-copy h2 {
-      margin: 7px 0 0;
-      font-size: 18px;
-      line-height: 1.1;
-      font-weight: 600;
+      margin: 5px 0 0;
+      font-size: 22px;
+      line-height: 1;
+      font-weight: 900;
       color: var(--orjn-text);
+      font-family: 'Jost', 'Helvetica Neue', sans-serif;
+      text-transform: uppercase;
+      letter-spacing: -0.02em;
+    }
+
+    .orjn-header-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 8px;
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--orjn-volt);
+      font-family: 'Inter', monospace;
+    }
+
+    .orjn-status-dot {
+      width: 5px;
+      height: 5px;
+      background: var(--orjn-volt);
+      flex-shrink: 0;
+      animation: orjn-blink 2.4s ease-in-out infinite;
     }
 
     .orjn-close {
-      width: 36px;
-      height: 36px;
+      width: 32px;
+      height: 32px;
       display: grid;
       place-items: center;
-      border: 1px solid transparent;
-      border-radius: 999px;
+      border: 1px solid var(--orjn-border);
+      border-radius: 0;
       background: transparent;
       color: var(--orjn-text-muted);
       cursor: pointer;
-      transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+      transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+      flex-shrink: 0;
     }
 
     .orjn-close:hover,
     .orjn-close:focus-visible {
-      background: rgba(255, 255, 255, 0.06);
-      border-color: var(--orjn-border);
+      background: var(--orjn-bg-soft);
+      border-color: var(--orjn-border-strong);
       color: var(--orjn-text);
       outline: none;
     }
 
+    /* ─── MESSAGES ──────────────────────────────────────── */
     .orjn-messages {
       flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 12px;
-      padding: 18px;
+      gap: 10px;
+      padding: 16px;
       overflow-y: auto;
-      background:
-        radial-gradient(circle at top right, rgba(239, 230, 213, 0.06), transparent 28%),
-        linear-gradient(180deg, rgba(255,255,255,0.015), transparent 40%);
+      background: var(--orjn-bg);
+      background-image:
+        repeating-linear-gradient(
+          0deg,
+          transparent,
+          transparent 3px,
+          rgba(255,255,255,0.008) 3px,
+          rgba(255,255,255,0.008) 4px
+        );
     }
 
+    .orjn-messages::-webkit-scrollbar { width: 2px; }
+    .orjn-messages::-webkit-scrollbar-track { background: transparent; }
+    .orjn-messages::-webkit-scrollbar-thumb { background: var(--orjn-border); }
+
+    /* ─── EMPTY STATE ───────────────────────────────────── */
     .orjn-empty {
       margin: auto 0;
-      padding: 28px 12px;
-    }
-
-    .orjn-empty p {
-      margin: 0;
-      color: var(--orjn-text-muted);
-      font-size: 13px;
-      line-height: 1.65;
-      max-width: 280px;
+      padding: 16px 4px;
     }
 
     .orjn-empty strong {
       display: block;
       margin-bottom: 8px;
       color: var(--orjn-text);
-      font-size: 18px;
-      font-weight: 600;
+      font-size: 26px;
+      font-weight: 900;
+      font-family: 'Jost', sans-serif;
+      text-transform: uppercase;
+      letter-spacing: -0.02em;
+      line-height: 1;
     }
 
+    .orjn-empty p {
+      margin: 0;
+      color: var(--orjn-text-muted);
+      font-size: 11px;
+      line-height: 1.7;
+      max-width: 300px;
+      font-family: 'Inter', monospace;
+      letter-spacing: 0.03em;
+    }
+
+    .orjn-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 14px;
+    }
+
+    .orjn-chip {
+      padding: 6px 10px;
+      border: 1px solid var(--orjn-border);
+      border-radius: 0;
+      background: transparent;
+      color: var(--orjn-text-muted);
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      cursor: pointer;
+      transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+      font-family: 'Inter', monospace;
+    }
+
+    .orjn-chip:hover {
+      border-color: var(--orjn-volt);
+      color: var(--orjn-volt);
+      background: rgba(198, 255, 46, 0.04);
+    }
+
+    /* ─── MESSAGE BUBBLES ───────────────────────────────── */
     .orjn-msg {
       max-width: 88%;
-      font-size: 14px;
-      line-height: 1.6;
+      font-size: 13px;
+      line-height: 1.65;
       white-space: pre-wrap;
       word-break: break-word;
     }
 
     .orjn-msg.user {
       align-self: flex-end;
-      padding: 12px 14px;
-      border-radius: 12px 12px 4px 12px;
-      background: linear-gradient(180deg, #1c1c1c 0%, #141414 100%);
-      border: 1px solid rgba(255, 255, 255, 0.07);
+      padding: 10px 14px;
+      background: var(--orjn-bg-elevated);
+      border: 1px solid var(--orjn-border);
+      border-right: 2px solid var(--orjn-volt);
       color: var(--orjn-text);
     }
 
     .orjn-msg.assistant {
       align-self: flex-start;
       color: var(--orjn-text);
-      padding-right: 14px;
     }
 
+    /* ─── PRODUCT CARDS ─────────────────────────────────── */
     .orjn-stack {
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
     }
 
     .orjn-product {
       border: 1px solid var(--orjn-border);
-      border-radius: var(--orjn-radius);
       overflow: hidden;
-      background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01));
+      background: var(--orjn-bg-elevated);
+      transition: border-color 120ms ease;
+    }
+
+    .orjn-product:hover {
+      border-color: rgba(255,255,255,0.2);
     }
 
     .orjn-product img {
       display: block;
       width: 100%;
-      aspect-ratio: 1 / 1;
+      aspect-ratio: 4 / 3;
       object-fit: cover;
-      background: #111;
+      background: #0d0d0d;
     }
 
     .orjn-product-info {
-      padding: 14px;
+      padding: 12px 14px;
+      border-top: 1px solid var(--orjn-border);
     }
 
     .orjn-product-vendor {
-      margin-bottom: 5px;
+      margin-bottom: 3px;
       text-transform: uppercase;
-      letter-spacing: 0.18em;
-      font-size: 10px;
-      color: var(--orjn-text-subtle);
+      letter-spacing: 0.22em;
+      font-size: 8px;
+      color: var(--orjn-text-muted);
+      font-family: 'Inter', monospace;
     }
 
     .orjn-product-title {
-      margin: 0 0 8px;
-      font-size: 14px;
-      line-height: 1.4;
+      margin: 0 0 10px;
+      font-size: 13px;
+      line-height: 1.3;
       color: var(--orjn-text);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-family: 'Jost', sans-serif;
     }
 
     .orjn-product-price {
       display: flex;
-      gap: 8px;
+      gap: 10px;
       align-items: baseline;
+      font-size: 15px;
+      font-weight: 800;
+      font-family: 'Jost', sans-serif;
       color: var(--orjn-text);
-      font-size: 13px;
-      font-weight: 600;
+    }
+
+    .orjn-product-price.on-sale .current {
+      color: var(--orjn-infrared);
     }
 
     .orjn-product-price .compare {
       color: var(--orjn-text-subtle);
       text-decoration: line-through;
       font-weight: 400;
-      font-size: 12px;
+      font-size: 11px;
     }
 
     .orjn-meta {
       margin-top: 9px;
-      font-size: 12px;
+      padding-top: 9px;
+      border-top: 1px solid var(--orjn-border);
+      font-size: 9px;
       line-height: 1.5;
       color: var(--orjn-text-muted);
+      font-family: 'Inter', monospace;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
     }
 
+    /* ─── BUTTONS ───────────────────────────────────────── */
     .orjn-product-btn,
     .orjn-checkout-btn,
     .orjn-retry-btn,
     .orjn-send {
       border: 0;
       cursor: pointer;
-      transition: opacity 160ms ease, transform 160ms ease, background 160ms ease;
+      transition: background 120ms ease, opacity 120ms ease;
     }
 
-    .orjn-product-btn,
-    .orjn-checkout-btn {
-      width: calc(100% - 24px);
-      margin: 0 12px 12px;
-      padding: 12px 14px;
-      border-radius: 8px;
-      background: var(--orjn-accent);
-      color: #111;
-      font-size: 11px;
+    .orjn-product-btn {
+      display: block;
+      width: 100%;
+      padding: 13px 14px;
+      background: var(--orjn-volt);
+      color: #0A0A0A;
+      font-size: 9px;
       font-weight: 700;
-      letter-spacing: 0.18em;
+      letter-spacing: 0.22em;
       text-transform: uppercase;
       text-align: center;
+      border-top: 1px solid var(--orjn-border);
+      font-family: 'Inter', monospace;
     }
 
-    .orjn-product-btn:hover,
-    .orjn-checkout-btn:hover,
-    .orjn-send:hover {
-      opacity: 0.9;
-      transform: translateY(-1px);
+    .orjn-product-btn:hover {
+      background: #d4ff50;
     }
 
+    .orjn-checkout-btn {
+      display: block;
+      width: 100%;
+      padding: 16px 14px;
+      background: var(--orjn-volt);
+      color: #0A0A0A;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      text-align: center;
+      text-decoration: none;
+      margin-top: 8px;
+      font-family: 'Inter', monospace;
+    }
+
+    .orjn-checkout-btn:hover {
+      background: #d4ff50;
+    }
+
+    /* ─── COMPARISON TABLE ──────────────────────────────── */
     .orjn-comparison {
       overflow: hidden;
       border: 1px solid var(--orjn-border);
-      border-radius: var(--orjn-radius);
-      background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01));
+      background: var(--orjn-bg-elevated);
     }
 
     .orjn-comparison-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 12px;
+      font-size: 11px;
+      font-family: 'Inter', monospace;
     }
 
     .orjn-comparison-table th,
     .orjn-comparison-table td {
-      padding: 10px 12px;
+      padding: 9px 12px;
       text-align: left;
       vertical-align: top;
       border-bottom: 1px solid var(--orjn-border);
     }
 
     .orjn-comparison-table th {
-      color: var(--orjn-text-subtle);
+      color: var(--orjn-text-muted);
       text-transform: uppercase;
-      letter-spacing: 0.12em;
-      font-size: 10px;
-      font-weight: 600;
+      letter-spacing: 0.16em;
+      font-size: 8px;
+      font-weight: 700;
+      background: var(--orjn-bg);
     }
 
     .orjn-comparison-table td {
@@ -343,137 +475,152 @@ function ensureStyles(): void {
 
     .orjn-comparison-table td:first-child {
       color: var(--orjn-text);
-      width: 86px;
-      font-weight: 600;
+      width: 76px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-size: 9px;
     }
 
     .orjn-comparison-note {
       padding: 12px;
       color: var(--orjn-text-muted);
-      font-size: 12px;
-      line-height: 1.6;
+      font-size: 11px;
+      line-height: 1.65;
+      border-top: 1px solid var(--orjn-border);
+      font-family: 'Inter', monospace;
     }
 
+    /* ─── TYPING INDICATOR ──────────────────────────────── */
     .orjn-typing {
       display: flex;
-      gap: 6px;
+      gap: 5px;
       padding: 8px 2px;
+      align-items: center;
     }
 
     .orjn-typing span {
-      width: 6px;
-      height: 6px;
-      border-radius: 999px;
-      background: rgba(245, 241, 232, 0.55);
-      animation: orjn-pulse 1.1s ease-in-out infinite;
+      width: 4px;
+      height: 4px;
+      border-radius: 0;
+      background: var(--orjn-volt);
+      animation: orjn-pulse 1.2s ease-in-out infinite;
     }
 
-    .orjn-typing span:nth-child(2) {
-      animation-delay: 120ms;
-    }
+    .orjn-typing span:nth-child(2) { animation-delay: 160ms; }
+    .orjn-typing span:nth-child(3) { animation-delay: 320ms; }
 
-    .orjn-typing span:nth-child(3) {
-      animation-delay: 240ms;
-    }
-
+    /* ─── ERROR BAR ─────────────────────────────────────── */
     .orjn-error {
       display: none;
       justify-content: space-between;
       align-items: center;
       gap: 12px;
-      padding: 12px 16px;
-      border-top: 1px solid rgba(202, 92, 92, 0.28);
-      background: rgba(202, 92, 92, 0.09);
-      color: #f0b9b9;
-      font-size: 12px;
+      padding: 10px 14px;
+      border-top: 2px solid var(--orjn-infrared);
+      background: rgba(255, 90, 54, 0.07);
+      color: var(--orjn-infrared);
+      font-size: 10px;
       line-height: 1.5;
+      font-family: 'Inter', monospace;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      flex-shrink: 0;
     }
 
     .orjn-retry-btn {
       flex-shrink: 0;
-      padding: 8px 12px;
-      border-radius: 999px;
+      padding: 7px 12px;
+      border: 1px solid var(--orjn-infrared);
       background: transparent;
-      border: 1px solid rgba(240, 185, 185, 0.4);
-      color: inherit;
-      font-size: 11px;
-      letter-spacing: 0.12em;
+      color: var(--orjn-infrared);
+      font-size: 8px;
+      letter-spacing: 0.18em;
       text-transform: uppercase;
+      font-family: 'Inter', monospace;
+      transition: background 120ms ease;
     }
 
+    .orjn-retry-btn:hover {
+      background: rgba(255, 90, 54, 0.1);
+    }
+
+    /* ─── INPUT AREA ────────────────────────────────────── */
     .orjn-input-area {
       display: flex;
-      gap: 10px;
-      align-items: flex-end;
-      padding: 14px;
-      border-top: 1px solid var(--orjn-border);
-      background: rgba(255, 255, 255, 0.02);
+      align-items: stretch;
+      border-top: 2px solid var(--orjn-border);
+      background: var(--orjn-bg-elevated);
+      flex-shrink: 0;
     }
 
     .orjn-input {
-      width: 100%;
-      min-height: 46px;
+      flex: 1;
+      min-height: 52px;
       max-height: 140px;
       resize: none;
-      border: 1px solid var(--orjn-border);
-      border-radius: 12px;
-      padding: 12px 14px;
-      background: rgba(255, 255, 255, 0.03);
+      border: none;
+      border-right: 2px solid var(--orjn-border);
+      padding: 15px 16px;
+      background: transparent;
       color: var(--orjn-text);
-      font: inherit;
-      line-height: 1.5;
+      font-family: 'Inter', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      letter-spacing: 0.02em;
     }
 
     .orjn-input::placeholder {
       color: var(--orjn-text-subtle);
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      font-size: 9px;
     }
 
-    .orjn-input:focus-visible {
-      outline: 1px solid rgba(239, 230, 213, 0.4);
-      border-color: rgba(239, 230, 213, 0.4);
+    .orjn-input:focus {
+      outline: none;
+      background: rgba(198, 255, 46, 0.012);
     }
 
     .orjn-send {
-      width: 46px;
-      height: 46px;
+      width: 56px;
       display: grid;
       place-items: center;
-      border-radius: 12px;
-      background: var(--orjn-accent);
-      color: #111;
-      font-size: 17px;
-      font-weight: 700;
+      background: var(--orjn-volt);
+      color: #0A0A0A;
       flex-shrink: 0;
     }
 
-    .orjn-send[disabled] {
-      opacity: 0.45;
-      cursor: not-allowed;
-      transform: none;
+    .orjn-send:hover:not([disabled]) {
+      background: #d4ff50;
     }
 
+    .orjn-send[disabled] {
+      opacity: 0.3;
+      cursor: not-allowed;
+      background: var(--orjn-border);
+      color: var(--orjn-text-subtle);
+    }
+
+    /* ─── ANIMATIONS ────────────────────────────────────── */
     @keyframes orjn-pulse {
-      0%, 80%, 100% { opacity: 0.3; }
-      40% { opacity: 1; }
+      0%, 80%, 100% { opacity: 0.15; transform: scale(0.7); }
+      40% { opacity: 1; transform: scale(1.3); }
+    }
+
+    @keyframes orjn-blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.25; }
     }
 
     @keyframes orjn-panel-enter {
-      from {
-        opacity: 0;
-        transform: translateY(10px) scale(0.985);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0) scale(1);
-      }
+      from { opacity: 0; transform: translateY(24px); }
+      to   { opacity: 1; transform: translateY(0); }
     }
 
+    /* ─── RESPONSIVE ────────────────────────────────────── */
     @media (max-width: 640px) {
-      #orjn-concierge-shell {
-        right: 12px;
-        bottom: 12px;
-      }
-
+      #orjn-concierge-shell { right: 12px; bottom: 12px; }
       #orjn-panel.open {
         width: calc(100vw - 24px);
         height: min(82vh, 720px);
@@ -481,10 +628,7 @@ function ensureStyles(): void {
     }
 
     @media (max-width: 480px) {
-      #orjn-concierge-shell {
-        right: 0;
-        bottom: 0;
-      }
+      #orjn-concierge-shell { right: 0; bottom: 0; }
 
       #orjn-launcher {
         position: fixed;
@@ -495,7 +639,6 @@ function ensureStyles(): void {
       #orjn-panel.open {
         width: 100vw;
         height: 100dvh;
-        border-radius: 0;
         border-left: 0;
         border-right: 0;
         border-bottom: 0;
@@ -507,18 +650,94 @@ function ensureStyles(): void {
 }
 
 function createButton(label: string, className: string, onClick: () => void): HTMLButtonElement {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = className;
-  button.textContent = label;
-  button.addEventListener("click", onClick);
-  return button;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = className;
+  btn.textContent = label;
+  btn.addEventListener("click", onClick);
+  return btn;
 }
 
-function renderPrice(price?: Product["priceRange"]["minVariantPrice"], compareAt?: Product["variants"][0]["compareAtPrice"] | null): HTMLElement {
+// Sharp terminal-style chat icon (zero border-radius SVG path)
+function createLauncherIcon(): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", "22");
+  svg.setAttribute("height", "22");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "square");
+  svg.setAttribute("stroke-linejoin", "miter");
+
+  // Sharp message box — no arcs, no radius
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", "M3 3 L21 3 L21 17 L7 17 L3 21 L3 3 Z");
+  svg.appendChild(path);
+  return svg;
+}
+
+function createCloseIcon(): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", "12");
+  svg.setAttribute("height", "12");
+  svg.setAttribute("viewBox", "0 0 12 12");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "square");
+
+  const l1 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  l1.setAttribute("x1", "1"); l1.setAttribute("y1", "1");
+  l1.setAttribute("x2", "11"); l1.setAttribute("y2", "11");
+
+  const l2 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  l2.setAttribute("x1", "11"); l2.setAttribute("y1", "1");
+  l2.setAttribute("x2", "1"); l2.setAttribute("y2", "11");
+
+  svg.append(l1, l2);
+  return svg;
+}
+
+function createSendIcon(): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", "16");
+  svg.setAttribute("height", "16");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2.5");
+  svg.setAttribute("stroke-linecap", "square");
+  svg.setAttribute("stroke-linejoin", "miter");
+
+  const shaft = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  shaft.setAttribute("x1", "8"); shaft.setAttribute("y1", "14");
+  shaft.setAttribute("x2", "8"); shaft.setAttribute("y2", "2");
+
+  const left = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  left.setAttribute("x1", "2"); left.setAttribute("y1", "8");
+  left.setAttribute("x2", "8"); left.setAttribute("y2", "2");
+
+  const right = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  right.setAttribute("x1", "14"); right.setAttribute("y1", "8");
+  right.setAttribute("x2", "8"); right.setAttribute("y2", "2");
+
+  svg.append(shaft, left, right);
+  return svg;
+}
+
+function renderPrice(
+  price?: Product["priceRange"]["minVariantPrice"],
+  compareAt?: Product["variants"][0]["compareAtPrice"] | null
+): HTMLElement {
   const wrap = document.createElement("div");
-  wrap.className = "orjn-product-price";
-  wrap.append(`${price ? `${price.amount} ${price.currencyCode}` : ""}`);
+  const hasSale = !!compareAt;
+  wrap.className = `orjn-product-price${hasSale ? " on-sale" : ""}`;
+
+  const current = document.createElement("span");
+  current.className = "current";
+  current.textContent = price ? `${price.amount} ${price.currencyCode}` : "";
+  wrap.appendChild(current);
 
   if (compareAt) {
     const compare = document.createElement("span");
@@ -530,22 +749,12 @@ function renderPrice(price?: Product["priceRange"]["minVariantPrice"], compareAt
   return wrap;
 }
 
-function createStaticIcon(): SVGSVGElement {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("width", "24");
-  svg.setAttribute("height", "24");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("fill", "none");
-  svg.setAttribute("stroke", "currentColor");
-  svg.setAttribute("stroke-width", "2");
-  svg.setAttribute("stroke-linecap", "round");
-  svg.setAttribute("stroke-linejoin", "round");
-
-  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  path.setAttribute("d", "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z");
-  svg.appendChild(path);
-  return svg;
-}
+const QUICK_QUERIES = [
+  { label: "LATEST DROPS", query: "What are the latest drops?" },
+  { label: "AIR FORCE 1", query: "Show me Air Force 1 options" },
+  { label: "JORDAN 1", query: "Show me Jordan 1 options" },
+  { label: "SHIPPING INFO", query: "What are your shipping policies?" },
+];
 
 class ORJNConciergeWidget {
   private readonly config = getConfig();
@@ -572,67 +781,99 @@ class ORJNConciergeWidget {
     this.shell = document.createElement("div");
     this.shell.id = "orjn-concierge-shell";
 
+    // ── Launcher ──────────────────────────────────────────
     this.launcher = createButton("", "", () => this.openChat());
     this.launcher.id = "orjn-launcher";
     this.launcher.setAttribute("aria-label", "Open ORJN Concierge");
-    this.launcher.appendChild(createStaticIcon());
+    this.launcher.appendChild(createLauncherIcon());
 
+    // ── Panel ─────────────────────────────────────────────
     this.panel = document.createElement("div");
     this.panel.id = "orjn-panel";
 
+    // ── Header ────────────────────────────────────────────
     const header = document.createElement("div");
     header.className = "orjn-header";
 
     const headerCopy = document.createElement("div");
     headerCopy.className = "orjn-header-copy";
-    const eyebrow = document.createElement("p");
-    eyebrow.textContent = "ORJN Concierge";
-    const title = document.createElement("h2");
-    title.textContent = "Original heat, minus the guesswork";
-    headerCopy.append(eyebrow, title);
 
-    const close = createButton("x", "orjn-close", () => this.closeChat());
+    const eyebrow = document.createElement("p");
+    eyebrow.textContent = "SYS.DIR // CONCIERGE";
+
+    const title = document.createElement("h2");
+    title.textContent = "Drop Intelligence";
+
+    const statusLine = document.createElement("div");
+    statusLine.className = "orjn-header-status";
+    const dot = document.createElement("span");
+    dot.className = "orjn-status-dot";
+    statusLine.append(dot, "Network Live");
+
+    headerCopy.append(eyebrow, title, statusLine);
+
+    const close = createButton("", "orjn-close", () => this.closeChat());
     close.setAttribute("aria-label", "Close ORJN Concierge");
+    close.appendChild(createCloseIcon());
 
     header.append(headerCopy, close);
 
+    // ── Messages ──────────────────────────────────────────
     this.messages = document.createElement("div");
     this.messages.className = "orjn-messages";
 
     this.emptyState = document.createElement("div");
     this.emptyState.className = "orjn-empty";
+
     const emptyTitle = document.createElement("strong");
-    emptyTitle.textContent = "Ask for product picks, sizes, pricing, or policy details.";
+    emptyTitle.textContent = "Query the network.";
+
     const emptyBody = document.createElement("p");
-    emptyBody.textContent = "Keep it natural. We will search live catalog data for product and cart answers, not guess.";
-    this.emptyState.append(emptyTitle, emptyBody);
+    emptyBody.textContent =
+      "Drop intel, size availability, archive pricing, sourcing. Ask anything — we pull live catalog data, not guesses.";
+
+    const chips = document.createElement("div");
+    chips.className = "orjn-chips";
+    QUICK_QUERIES.forEach(({ label, query }) => {
+      const chip = createButton(label, "orjn-chip", () => {
+        this.input.value = query;
+        this.autoResizeInput();
+        void this.sendMessage();
+      });
+      chips.appendChild(chip);
+    });
+
+    this.emptyState.append(emptyTitle, emptyBody, chips);
     this.messages.appendChild(this.emptyState);
 
+    // ── Error Bar ─────────────────────────────────────────
     this.errorBar = document.createElement("div");
     this.errorBar.className = "orjn-error";
     this.errorText = document.createElement("span");
-    const retry = createButton("Retry", "orjn-retry-btn", () => this.retryLast());
+    const retry = createButton("RETRY", "orjn-retry-btn", () => this.retryLast());
     this.errorBar.append(this.errorText, retry);
 
+    // ── Input Area ────────────────────────────────────────
     const inputArea = document.createElement("div");
     inputArea.className = "orjn-input-area";
 
     this.input = document.createElement("textarea");
     this.input.className = "orjn-input";
     this.input.rows = 1;
-    this.input.placeholder = "Ask about products, sizes, or policies...";
+    this.input.placeholder = "QUERY THE NETWORK...";
     this.input.addEventListener("input", () => this.autoResizeInput());
-    this.input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !event.shiftKey) {
-        event.preventDefault();
+    this.input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
         void this.sendMessage();
       }
     });
 
-    this.sendButton = createButton("↑", "orjn-send", () => {
+    this.sendButton = createButton("", "orjn-send", () => {
       void this.sendMessage();
     });
     this.sendButton.setAttribute("aria-label", "Send message");
+    this.sendButton.appendChild(createSendIcon());
 
     inputArea.append(this.input, this.sendButton);
     this.panel.append(header, this.messages, this.errorBar, inputArea);
@@ -653,10 +894,7 @@ class ORJNConciergeWidget {
         body: JSON.stringify({
           sessionId: this.sessionId,
           name,
-          payload: {
-            ...payload,
-            shopDomain: this.config.shopDomain,
-          },
+          payload: { ...payload, shopDomain: this.config.shopDomain },
         }),
       });
     } catch {
@@ -714,11 +952,11 @@ class ORJNConciergeWidget {
     card.className = "orjn-product";
 
     if (product.images[0]) {
-      const image = document.createElement("img");
-      image.src = product.images[0].url;
-      image.alt = product.images[0].altText || product.title;
-      image.loading = "lazy";
-      card.appendChild(image);
+      const img = document.createElement("img");
+      img.src = product.images[0].url;
+      img.alt = product.images[0].altText || product.title;
+      img.loading = "lazy";
+      card.appendChild(img);
     }
 
     const info = document.createElement("div");
@@ -728,31 +966,32 @@ class ORJNConciergeWidget {
     vendor.className = "orjn-product-vendor";
     vendor.textContent = product.vendor || "ORJN";
 
-    const title = document.createElement("h3");
-    title.className = "orjn-product-title";
-    title.textContent = product.title;
+    const titleEl = document.createElement("h3");
+    titleEl.className = "orjn-product-title";
+    titleEl.textContent = product.title;
 
-    const compareAtPrice = product.variants.find((variant) => variant.compareAtPrice)?.compareAtPrice ?? null;
-    info.append(vendor, title, renderPrice(product.priceRange.minVariantPrice, compareAtPrice));
+    const compareAtPrice =
+      product.variants.find((v) => v.compareAtPrice)?.compareAtPrice ?? null;
+    info.append(vendor, titleEl, renderPrice(product.priceRange.minVariantPrice, compareAtPrice));
 
     const inStockSizes = product.variants
-      .filter((variant) => variant.availableForSale)
-      .flatMap((variant) =>
-        variant.selectedOptions
-          .filter((option) => option.name.toLowerCase() === "size")
-          .map((option) => option.value)
+      .filter((v) => v.availableForSale)
+      .flatMap((v) =>
+        v.selectedOptions
+          .filter((o) => o.name.toLowerCase() === "size")
+          .map((o) => o.value)
       );
 
     if (inStockSizes.length > 0) {
       const meta = document.createElement("div");
       meta.className = "orjn-meta";
-      meta.textContent = `In stock sizes: ${Array.from(new Set(inStockSizes)).slice(0, 6).join(", ")}`;
+      meta.textContent = `In Stock: ${Array.from(new Set(inStockSizes)).slice(0, 6).join(" · ")}`;
       info.appendChild(meta);
     }
 
     card.appendChild(info);
 
-    const action = createButton("Check sizes in chat", "orjn-product-btn", () => {
+    const action = createButton("SECURE PAIR →", "orjn-product-btn", () => {
       void this.logAnalytics("product_clicked", { productHandle: product.handle });
       this.input.value = `What sizes do you have for ${product.title}?`;
       this.autoResizeInput();
@@ -772,27 +1011,27 @@ class ORJNConciergeWidget {
 
     const headerRow = document.createElement("tr");
     headerRow.appendChild(document.createElement("th"));
-    comparison.products.forEach((product) => {
+    comparison.products.forEach((p) => {
       const th = document.createElement("th");
-      th.textContent = product.title;
+      th.textContent = p.title;
       headerRow.appendChild(th);
     });
     table.appendChild(headerRow);
 
     const availableSizes = new Map(
-      comparison.comparison.availableSizes.map((entry) => [entry.handle, entry.sizes.join(", ") || "-"])
+      comparison.comparison.availableSizes.map((e) => [e.handle, e.sizes.join(" · ") || "—"])
     );
-    const brands = new Map(comparison.comparison.brands.map((entry) => [entry.handle, entry.brand || "-"]));
-    const prices = new Map(comparison.comparison.prices.map((entry) => [entry.handle, entry.price || "-"]));
-    const productTypes = new Map(comparison.comparison.productTypes.map((entry) => [entry.handle, entry.type || "-"]));
-    const materials = new Map(comparison.comparison.materials.map((entry) => [entry.handle, entry.material || "-"]));
+    const brands = new Map(comparison.comparison.brands.map((e) => [e.handle, e.brand || "—"]));
+    const prices = new Map(comparison.comparison.prices.map((e) => [e.handle, e.price || "—"]));
+    const productTypes = new Map(comparison.comparison.productTypes.map((e) => [e.handle, e.type || "—"]));
+    const materials = new Map(comparison.comparison.materials.map((e) => [e.handle, e.material || "—"]));
 
     const rows: Array<{ label: string; lookup: (handle: string) => string }> = [
-      { label: "Brand", lookup: (handle) => brands.get(handle) || "-" },
-      { label: "Price", lookup: (handle) => prices.get(handle) || "-" },
-      { label: "Sizes", lookup: (handle) => availableSizes.get(handle) || "-" },
-      { label: "Type", lookup: (handle) => productTypes.get(handle) || "-" },
-      { label: "Material", lookup: (handle) => materials.get(handle) || "-" },
+      { label: "Brand",    lookup: (h) => brands.get(h) || "—" },
+      { label: "Price",    lookup: (h) => prices.get(h) || "—" },
+      { label: "Sizes",    lookup: (h) => availableSizes.get(h) || "—" },
+      { label: "Type",     lookup: (h) => productTypes.get(h) || "—" },
+      { label: "Material", lookup: (h) => materials.get(h) || "—" },
     ];
 
     rows.forEach((row) => {
@@ -800,13 +1039,11 @@ class ORJNConciergeWidget {
       const labelCell = document.createElement("td");
       labelCell.textContent = row.label;
       tr.appendChild(labelCell);
-
-      comparison.products.forEach((product) => {
+      comparison.products.forEach((p) => {
         const valueCell = document.createElement("td");
-        valueCell.textContent = row.lookup(product.handle);
+        valueCell.textContent = row.lookup(p.handle);
         tr.appendChild(valueCell);
       });
-
       table.appendChild(tr);
     });
 
@@ -833,7 +1070,7 @@ class ORJNConciergeWidget {
     if (products && products.length > 0) {
       const stack = document.createElement("div");
       stack.className = "orjn-stack";
-      products.slice(0, 4).forEach((product) => stack.appendChild(this.renderProduct(product)));
+      products.slice(0, 4).forEach((p) => stack.appendChild(this.renderProduct(p)));
       this.messages.appendChild(stack);
     }
 
@@ -847,7 +1084,7 @@ class ORJNConciergeWidget {
       link.href = cartAction.checkoutUrl;
       link.target = "_blank";
       link.rel = "noopener noreferrer";
-      link.textContent = "Proceed to checkout";
+      link.textContent = "SECURE CHECKOUT →";
       this.messages.appendChild(link);
     }
 
@@ -857,7 +1094,11 @@ class ORJNConciergeWidget {
   private showTyping(): HTMLDivElement {
     const typing = document.createElement("div");
     typing.className = "orjn-typing";
-    typing.append(document.createElement("span"), document.createElement("span"), document.createElement("span"));
+    typing.append(
+      document.createElement("span"),
+      document.createElement("span"),
+      document.createElement("span")
+    );
     this.messages.appendChild(typing);
     this.scrollToBottom();
     return typing;
@@ -891,9 +1132,7 @@ class ORJNConciergeWidget {
         message: text,
       };
 
-      if (this.cartId) {
-        body.cartId = this.cartId;
-      }
+      if (this.cartId) body.cartId = this.cartId;
 
       const response = await fetch(`${this.config.apiBaseUrl}/api/chat`, {
         method: "POST",
@@ -902,14 +1141,14 @@ class ORJNConciergeWidget {
       });
 
       if (!response.ok) {
-        const errorPayload = (await response.json().catch(() => ({ error: "Network error" }))) as { error?: string };
+        const errorPayload = (await response.json().catch(() => ({ error: "Network error" }))) as {
+          error?: string;
+        };
         throw new Error(errorPayload.error || "Failed to send message");
       }
 
       const payload = (await response.json()) as ChatResponse;
-      if (payload.cartId) {
-        this.cartId = payload.cartId;
-      }
+      if (payload.cartId) this.cartId = payload.cartId;
 
       typing.remove();
       this.appendAssistantPayload(
@@ -929,7 +1168,11 @@ class ORJNConciergeWidget {
 }
 
 function mountWidget(): void {
-  const root = document.getElementById(ROOT_ID) || document.body.appendChild(Object.assign(document.createElement("div"), { id: ROOT_ID }));
+  const root =
+    document.getElementById(ROOT_ID) ||
+    document.body.appendChild(
+      Object.assign(document.createElement("div"), { id: ROOT_ID })
+    );
   root.replaceChildren();
   new ORJNConciergeWidget(root);
 }
