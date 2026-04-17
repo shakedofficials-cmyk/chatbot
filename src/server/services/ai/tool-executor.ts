@@ -1,6 +1,12 @@
 import type { Cart, Product, ProductComparison, SearchFilters, ShopperPreferences } from "../../../shared/types.js";
 import * as shopify from "../shopify/storefront.js";
 import * as dbProducts from "../products/db-products.js";
+import {
+  localCartCreate,
+  localCartAddLines,
+  localCartUpdateLines,
+  localCartGet,
+} from "../shopify/local-cart.js";
 import { answerPolicyQuestion } from "../knowledge/index.js";
 import { logEvent } from "../analytics/index.js";
 import {
@@ -399,7 +405,7 @@ async function handleCompareProducts(
 }
 
 async function handleCartCreate(): Promise<ToolResult> {
-  const cart = await shopify.cartCreate();
+  const cart = localCartCreate();
   return {
     content: JSON.stringify({ cartId: cart.id, checkoutUrl: cart.checkoutUrl }),
     cart,
@@ -407,15 +413,15 @@ async function handleCartCreate(): Promise<ToolResult> {
 }
 
 async function handleCartAddLines(input: Record<string, any>): Promise<ToolResult> {
-  const cart = await shopify.cartAddLines(input.cart_id, input.variant_id, input.quantity ?? 1);
+  const cart = localCartAddLines(input.cart_id, input.variant_id, input.quantity ?? 1);
   return {
-    content: `Added to cart. Cart now has ${cart.totalQuantity} item(s).`,
+    content: `Added to cart. Cart now has ${cart.totalQuantity} item(s). Checkout: ${cart.checkoutUrl}`,
     cart,
   };
 }
 
 async function handleCartUpdateLines(input: Record<string, any>): Promise<ToolResult> {
-  const cart = await shopify.cartUpdateLines(input.cart_id, input.line_id, input.quantity);
+  const cart = localCartUpdateLines(input.cart_id, input.line_id, input.quantity);
   return {
     content: `Cart updated. ${cart.totalQuantity} item(s).`,
     cart,
@@ -423,15 +429,15 @@ async function handleCartUpdateLines(input: Record<string, any>): Promise<ToolRe
 }
 
 async function handleGetCart(input: Record<string, any>): Promise<ToolResult> {
-  const cart = await shopify.cartGet(input.cart_id);
+  const cart = localCartGet(input.cart_id);
   return {
-    content: JSON.stringify(cart),
+    content: JSON.stringify({ totalQuantity: cart.totalQuantity, checkoutUrl: cart.checkoutUrl, lines: cart.lines.length }),
     cart,
   };
 }
 
 async function handleGetCheckoutUrl(input: Record<string, any>): Promise<ToolResult> {
-  const cart = await shopify.cartGet(input.cart_id);
+  const cart = localCartGet(input.cart_id);
   return {
     content: cart.checkoutUrl,
     checkoutUrl: cart.checkoutUrl,
