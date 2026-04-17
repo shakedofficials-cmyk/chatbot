@@ -73,13 +73,17 @@ function extractSize(normalizedQuery: string): string | undefined {
   return undefined;
 }
 
-function deriveModel(normalizedQuery: string, removableTerms: string[]): string | undefined {
+function deriveModel(normalizedQuery: string, removableTerms: string[], extractedSize?: string): string | undefined {
   let working = normalizedQuery;
   for (const term of removableTerms.filter(Boolean)) {
     working = working.replace(new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g"), " ");
   }
 
-  const tokens = stripStopWords(tokenize(working)).filter((token) => !/^\d+(\.\d+)?$/.test(token));
+  // Only strip the explicitly extracted size number — preserve model numbers like "1" in
+  // "Air Force 1", "270" in "Air Max 270", "990" in "New Balance 990".
+  const tokens = stripStopWords(tokenize(working)).filter(
+    (token) => !(extractedSize && token === extractedSize)
+  );
   return tokens.length > 0 ? tokens.join(" ") : undefined;
 }
 
@@ -105,14 +109,13 @@ export async function understandCatalogQuery(query: string): Promise<QueryUnders
     category ?? "",
     color ?? "",
     silhouette ?? "",
-    size ?? "",
     "size",
     "under",
     "below",
     "over",
     "above",
     ...styleTerms,
-  ]);
+  ], size);
 
   const filters: SearchFilters = {
     brand: brand ? brand.replace(/\b\w/g, (char) => char.toUpperCase()) : undefined,

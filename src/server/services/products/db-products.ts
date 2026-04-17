@@ -484,8 +484,30 @@ export async function hybridSearchProducts(
     ...filters,
   };
 
-  const lexicalCandidates = await lexicalSearch(query, mergedFilters, 24);
+  let lexicalCandidates = await lexicalSearch(query, mergedFilters, 24);
   const semanticCandidates = await semanticSearch(query, mergedFilters, 24);
+
+  // Hard fallback: if both lexical and semantic returned nothing, run a plain
+  // normalizedTitle LIKE search without any filter constraints — ensures queries
+  // like "Air Force 1" never silently return zero when the products exist in the DB.
+  if (lexicalCandidates.length === 0 && semanticCandidates.length === 0) {
+    const normalizedQ = normalizeText(query);
+    const fallback = await prisma.syncProduct.findMany({
+      where: {
+        OR: [
+          { normalizedTitle: { contains: normalizedQ } },
+          { searchText: { contains: normalizedQ } },
+          { silhouette: { contains: normalizedQ } },
+          { modelKey: { contains: normalizedQ } },
+        ],
+      },
+      select: { id: true },
+      take: 24,
+    });
+    lexicalCandidates = fallback.map((row) => ({ productId: row.id, score: 0.5 }));
+    console.warn("[search] fallback triggered", { query, normalizedQ, fallbackCount: fallback.length });
+  }
+
   const candidateIds = Array.from(
     new Set([...lexicalCandidates.map((entry) => entry.productId), ...semanticCandidates.map((entry) => entry.productId)])
   );
