@@ -157,6 +157,47 @@ async function handleGetSizeAvailability(
     recentProducts,
   });
 
+  // ── No specific size requested → return full size matrix ──
+  if (!input.size) {
+    let product: Product | null = null;
+    if (enriched.handleOrId) {
+      product = enriched.handleOrId.startsWith("gid://")
+        ? await dbProducts.getProductById(enriched.handleOrId)
+        : await dbProducts.getProductByHandle(enriched.handleOrId);
+    } else if (enriched.query) {
+      const products = await dbProducts.searchProducts(enriched.query, {}, 1, sessionId);
+      product = products[0] ?? null;
+    }
+
+    if (!product) {
+      return { content: JSON.stringify({ found: false, message: "Product not found." }) };
+    }
+
+    const allSizes = product.variants.map((v) => {
+      const raw = findSizeOptionValue(v.selectedOptions);
+      const normalized = raw ? (normalizeVariantSize(raw)?.value ?? raw) : v.title;
+      return { size: normalized, available: v.availableForSale };
+    });
+    const availableSizes = allSizes.filter((s) => s.available).map((s) => s.size);
+    const unavailableSizes = allSizes.filter((s) => !s.available).map((s) => s.size);
+
+    return {
+      content: JSON.stringify({
+        productHandle: product.handle,
+        productTitle: product.title,
+        available_sizes: availableSizes,
+        unavailable_sizes: unavailableSizes,
+        total_variants: product.variants.length,
+        in_stock_count: availableSizes.length,
+        message: availableSizes.length > 0
+          ? `In stock: ${availableSizes.join(", ")}`
+          : "No sizes currently in stock.",
+      }),
+      products: [product],
+    };
+  }
+
+  // ── Specific size check ──
   const result = await dbProducts.getSizeAvailability(
     { query: enriched.query, handleOrId: enriched.handleOrId, size: String(input.size) },
     sessionId
@@ -198,9 +239,9 @@ async function handleGetSizeAvailability(
         productHandle: result.product.handle,
         available_sizes: matchResult.availableSizes,
         closest_sizes: closestSizes,
-        message: `Size ${input.size} not available. Closest in stock: ${closestSizes.join(", ") || "none"}.`,
+        message: `Size ${input.size} not available for ${result.product.title}. In stock: ${matchResult.availableSizes.join(", ") || "none"}.`,
       }),
-      products: [result.product, ...result.alternatives].slice(0, 4),
+      products: [result.product],
     };
   }
 
@@ -212,6 +253,7 @@ async function handleGetSizeAvailability(
       variantId: result.matchingVariant.id,
       price: result.matchingVariant.price,
       productHandle: result.product.handle,
+      productTitle: result.product.title,
       available_sizes: matchResult.availableSizes,
       closest_sizes: [],
     }),

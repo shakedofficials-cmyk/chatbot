@@ -44,24 +44,24 @@ export const AI_TOOLS = [
     type: "function" as const,
     name: "get_size_availability",
     description:
-      "Check whether a requested size is available for a specific product or the best matching retrieved product. Use this for questions like 'do you have dunks size 44'. Accepts EU sizes ('44'), US sizes ('10 US'), or UK sizes ('9 UK'). Always returns available_sizes, has_requested_size, and closest_sizes so you can suggest alternatives when the exact size is out of stock.",
+      "Check size availability for a product. Two use cases: (1) Specific size check — 'do you have dunks in size 44?' Pass size + handle_or_id or query. Returns has_requested_size, available_sizes, closest_sizes. (2) Full size listing — 'what sizes do you have?' Omit size and pass handle_or_id. Returns all available and unavailable sizes for that product. Always use handle_or_id when the product was already shown in context — do NOT re-search.",
     parameters: {
       type: "object",
       properties: {
         query: {
           type: "string",
-          description: "Optional natural language product query when the exact handle is not known",
+          description: "Natural language product query — use only when the product handle is NOT known from context",
         },
         handle_or_id: {
           type: "string",
-          description: "Optional product handle or Shopify product GID when the product is already known",
+          description: "Product handle or Shopify GID — prefer this over query when the product was already shown",
         },
         size: {
           type: "string",
-          description: "Requested size — EU ('44', '44.5'), US ('10 US', '10.5 US'), or UK ('9 UK'). Default system is EU.",
+          description: "Specific size to check — EU ('44', '44.5'), US ('10 US'), or UK ('9 UK'). Omit when asking for all sizes.",
         },
       },
-      required: ["size"],
+      required: [],
     },
   },
   {

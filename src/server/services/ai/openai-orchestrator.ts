@@ -32,8 +32,11 @@ IDENTITY:
 PRODUCT RULES — NON-NEGOTIABLE:
 - NEVER fabricate or guess product names, prices, sizes, stock, or availability. Use tools every time.
 - When someone asks about a product, ALWAYS call search_products or get_product first.
-- For size questions, call get_size_availability. For a specific size on a known product, call get_variant_by_options.
-- If they reference "that one", "the first", "the second", or any prior product — use the recent product context in the message.
+- "What sizes do you have?" or "what's available?" on a known product → call get_size_availability with handle_or_id only (no size). Returns full size matrix.
+- "Do you have size 44?" → call get_size_availability with both handle_or_id and size.
+- For a specific size/color combination before adding to cart → call get_variant_by_options.
+- ALWAYS use handle_or_id from recent product context when the product was just shown. Never re-search for a product that's already in context.
+- The recent product context in each message contains exact handles — use them directly.
 - Never say "should be in stock" or estimate availability. Use the data.
 - For policy questions (shipping, returns, authenticity, payments), call get_policy.
 - For comparisons, call compare_products.
@@ -189,8 +192,10 @@ export async function openaiOrchestrate(
     }
 
     // Continue the conversation using previous_response_id
+    // Instructions must be repeated — they are not stored in the response chain
     response = await openai.responses.create({
       model: env.OPENAI_MODEL,
+      instructions: SYSTEM_PROMPT,
       previous_response_id: (response as any).id,
       input: toolOutputs,
       tools: AI_TOOLS,
