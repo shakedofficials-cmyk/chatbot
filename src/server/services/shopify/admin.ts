@@ -1,4 +1,4 @@
-import { env } from "../../config.js";
+import { env, shopifyClientId, shopifyClientSecret, hasShopifyClientCredentials } from "../../config.js";
 import { refreshOfflineAccessToken } from "./auth.js";
 import {
   assertValidShopDomain,
@@ -11,6 +11,69 @@ import {
 
 const ADMIN_API_VERSION = "2026-04";
 const TOKEN_REFRESH_SKEW_MS = 5 * 60 * 1000;
+
+// ── Client credentials token cache ──
+// Tokens expire in 24h; we refresh 5 min before expiry.
+interface TokenCache {
+  token: string;
+  expiresAt: number; // ms epoch
+}
+let _clientCredentialsCache: TokenCache | null = null;
+
+async function fetchClientCredentialsAdminToken(shopDomain: string): Promise<string> {
+  const url = `https://${shopDomain}/admin/oauth/access_token`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: shopifyClientId,
+      client_secret: shopifyClientSecret,
+      grant_type: "client_credentials",
+    }).toString(),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(
+      `Shopify client_credentials token request failed: ${res.status} ${res.statusText} ${body}`.trim()
+    );
+  }
+
+  const data = (await res.json()) as { access_token: string; expires_in?: number };
+  if (!data.access_token) {
+    throw new Error("Shopify client_credentials response missing access_token");
+  }
+
+  const expiresIn = data.expires_in ?? 86400; // default 24h
+  _clientCredentialsCache = {
+    token: data.access_token,
+    expiresAt: Date.now() + (expiresIn - 300) * 1000, // refresh 5 min early
+  };
+
+  console.log("[shopify] client_credentials admin token refreshed", {
+    shopDomain,
+    expiresInSeconds: expiresIn,
+  });
+
+  return data.access_token;
+}
+
+export async function getOrRefreshClientCredentialsToken(shopDomain: string): Promise<string | null> {
+  if (!hasShopifyClientCredentials) return null;
+
+  if (_clientCredentialsCache && Date.now() < _clientCredentialsCache.expiresAt) {
+    return _clientCredentialsCache.token;
+  }
+
+  try {
+    return await fetchClientCredentialsAdminToken(shopDomain);
+  } catch (error) {
+    console.error("[shopify] client_credentials token refresh failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
 
 interface StorefrontTokenCreateResponse {
   storefront_access_token?: {
@@ -97,31 +160,48 @@ export async function ensureManagedStorefrontAccessToken(shopDomain?: string): P
     return installed.storefrontAccessToken;
   }
 
-  if (!installed) {
+  // No OAuth-installed shop — try client_credentials flow if credentials are present
+  const adminToken = installed
+    ? await getValidAdminAccessToken(configuredShop)
+    : await getOrRefreshClientCredentialsToken(configuredShop);
+
+  if (!adminToken) {
     return env.SHOPIFY_STOREFRONT_ACCESS_TOKEN || null;
   }
 
-  const response = await adminRestJson<StorefrontTokenCreateResponse>(configuredShop, "/storefront_access_tokens.json", {
+  // Use the admin token to create a managed Storefront access token
+  const url = `https://${configuredShop}/admin/api/${ADMIN_API_VERSION}/storefront_access_tokens.json`;
+  const response = await fetch(url, {
     method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "X-Shopify-Access-Token": adminToken,
+    },
     body: JSON.stringify({
-      storefront_access_token: {
-        title: env.SHOPIFY_STOREFRONT_TOKEN_TITLE,
-      },
+      storefront_access_token: { title: env.SHOPIFY_STOREFRONT_TOKEN_TITLE },
     }),
   });
 
-  const token = response.storefront_access_token?.access_token;
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    console.error("[shopify] storefront token creation failed", { status: response.status, body: body.slice(0, 500) });
+    return env.SHOPIFY_STOREFRONT_ACCESS_TOKEN || null;
+  }
+
+  const data = (await response.json()) as StorefrontTokenCreateResponse;
+  const token = data.storefront_access_token?.access_token;
   if (!token) {
     throw new Error("Shopify did not return a storefront access token.");
   }
 
   await updateStorefrontToken(configuredShop, {
     accessToken: token,
-    tokenId: response.storefront_access_token?.admin_graphql_api_id
-      ?? (response.storefront_access_token?.id != null
-        ? String(response.storefront_access_token.id)
+    tokenId: data.storefront_access_token?.admin_graphql_api_id
+      ?? (data.storefront_access_token?.id != null
+        ? String(data.storefront_access_token.id)
         : null),
-    accessScopes: response.storefront_access_token?.access_scope ?? null,
+    accessScopes: data.storefront_access_token?.access_scope ?? null,
   });
 
   return token;

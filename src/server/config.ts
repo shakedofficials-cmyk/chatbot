@@ -6,6 +6,9 @@ const envSchema = z.object({
   SHOPIFY_STOREFRONT_ACCESS_TOKEN: z.string().default(""),
   SHOPIFY_API_KEY: z.string().default(""),
   SHOPIFY_API_SECRET: z.string().default(""),
+  // Aliases used by new Dev Dashboard apps (same values, different names)
+  SHOPIFY_CLIENT_ID: z.string().default(""),
+  SHOPIFY_CLIENT_SECRET: z.string().default(""),
   SHOPIFY_APP_URL: z.string().default(""),
   SHOPIFY_AUTH_SCOPES: z
     .string()
@@ -49,6 +52,12 @@ export const hasLiveShopifyStore =
 export const hasShopifyOAuthConfig = Boolean(
   env.SHOPIFY_API_KEY && env.SHOPIFY_API_SECRET && env.SHOPIFY_APP_URL
 );
+
+// Effective client credentials — prefer the explicit CLIENT_ID/SECRET vars,
+// fall back to the legacy API_KEY/API_SECRET names.
+export const shopifyClientId = env.SHOPIFY_CLIENT_ID || env.SHOPIFY_API_KEY;
+export const shopifyClientSecret = env.SHOPIFY_CLIENT_SECRET || env.SHOPIFY_API_SECRET;
+export const hasShopifyClientCredentials = Boolean(shopifyClientId && shopifyClientSecret);
 
 // Dev mode = no real Shopify store configured.
 export const usesMockShopify = !hasLiveShopifyStore;

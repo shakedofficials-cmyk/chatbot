@@ -12,7 +12,7 @@ import analyticsRoutes from "./routes/analytics.js";
 import retrievalRoutes from "./routes/retrieval.js";
 import authRoutes from "./routes/auth.js";
 import { syncShopifyProducts } from "./services/sync/shopify-sync.js";
-import { refreshAllInstalledAdminTokens } from "./services/shopify/admin.js";
+import { refreshAllInstalledAdminTokens, ensureManagedStorefrontAccessToken } from "./services/shopify/admin.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -119,6 +119,11 @@ const server = app.listen(PORT, "0.0.0.0", () => {
 
   // Non-blocking initial sync + periodic re-sync
   if (hasLiveShopifyStore) {
+    // Warm the Storefront token on boot (client_credentials flow if creds present)
+    ensureManagedStorefrontAccessToken(env.SHOPIFY_STORE_DOMAIN)
+      .then((t) => console.log("[shopify] Storefront token ready:", Boolean(t)))
+      .catch((e) => console.error("[shopify] Storefront token warmup failed:", e));
+
     refreshAllInstalledAdminTokens().catch((error) =>
       console.error("[shopify] startup admin token refresh failed:", error)
     );
@@ -133,6 +138,13 @@ const server = app.listen(PORT, "0.0.0.0", () => {
         .then((r) => console.log("[sync] Periodic sync complete:", r))
         .catch((e) => console.error("[sync] Periodic sync failed:", e));
     }, intervalMs);
+
+    // Re-warm Storefront token every 23h (tokens expire at 24h)
+    setInterval(() => {
+      ensureManagedStorefrontAccessToken(env.SHOPIFY_STORE_DOMAIN).catch((e) =>
+        console.error("[shopify] periodic Storefront token refresh failed:", e)
+      );
+    }, 23 * 60 * 60 * 1000);
 
     const refreshIntervalMs = 24 * 60 * 60 * 1000;
     setInterval(() => {
