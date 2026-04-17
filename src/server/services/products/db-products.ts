@@ -638,7 +638,9 @@ export async function getVariantByOptions(
     const [, sizeValue] = sizeEntry;
     const matchResult = findBestVariantMatch(product.variants, sizeValue);
 
-    let candidate = matchResult.exactMatch;
+    // Prefer an available variant — if two variants share the same EU size
+    // (e.g. different gender/width/colorway), always surface the one in stock first.
+    let candidate = matchResult.exactMatchAvailable ?? matchResult.exactMatch;
 
     // If there are additional option axes (e.g. Color), verify them too
     if (candidate && nonSizeEntries.length > 0) {
