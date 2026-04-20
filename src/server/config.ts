@@ -36,6 +36,7 @@ const envSchema = z.object({
   SYNC_SECRET: z.string().optional(),
   RETRIEVAL_DEBUG_SECRET: z.string().optional(),
   SYNC_INTERVAL_MINUTES: z.coerce.number().default(15),
+  SYNC_STALE_AFTER_HOURS: z.coerce.number().default(24),
 });
 
 export const env = envSchema.parse(process.env);

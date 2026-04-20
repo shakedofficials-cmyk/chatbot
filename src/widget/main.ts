@@ -9,6 +9,17 @@ interface WidgetConfig {
   shopDomain?: string;
 }
 
+interface ShopifyThemeProduct {
+  options?: string[];
+  variants?: Array<{
+    id: number;
+    available?: boolean;
+    option1?: string | null;
+    option2?: string | null;
+    option3?: string | null;
+  }>;
+}
+
 const STYLE_ID = "orjn-concierge-styles";
 const ROOT_ID = "orjn-concierge-root";
 
@@ -1037,7 +1048,12 @@ class ORJNConciergeWidget {
     return result;
   }
 
-  private async addToCartDirect(product: Product, variantId: string, btn: HTMLButtonElement): Promise<void> {
+  private async addToCartDirect(
+    product: Product,
+    variantId: string,
+    sizeLabel: string,
+    btn: HTMLButtonElement
+  ): Promise<void> {
     btn.classList.add("adding");
     btn.disabled = true;
 
@@ -1048,10 +1064,41 @@ class ORJNConciergeWidget {
       this.showCartStatus(`${product.title} added to cart.`);
       btn.classList.remove("adding");
       btn.disabled = false;
-    } catch {
+    } catch (error) {
+      try {
+        const liveVariantId = await this.findLiveVariantId(product, sizeLabel);
+        if (liveVariantId && liveVariantId !== variantId) {
+          await this.addToThemeCart(liveVariantId);
+          void this.logAnalytics("add_to_cart", {
+            productHandle: product.handle,
+            variantId: liveVariantId,
+            recoveredFromStaleVariant: true,
+          });
+          this.hideError();
+          this.showCartStatus(`${product.title} added to cart.`);
+          btn.classList.remove("adding");
+          btn.disabled = false;
+          return;
+        }
+      } catch (liveError) {
+        console.error("[orjn] live variant recovery failed", {
+          productHandle: product.handle,
+          sizeLabel,
+          variantId,
+          message: liveError instanceof Error ? liveError.message : String(liveError),
+        });
+      }
+
       btn.classList.remove("adding");
       btn.disabled = false;
-      this.showError("Unable to add that size right now.");
+      const message = error instanceof Error ? error.message : "Unable to add that size right now.";
+      console.error("[orjn] add to cart failed", {
+        productHandle: product.handle,
+        sizeLabel,
+        variantId,
+        message,
+      });
+      this.showError(message);
       const original = btn.textContent ?? "";
       btn.textContent = "ERR — RETRY";
       setTimeout(() => {
@@ -1075,6 +1122,12 @@ class ORJNConciergeWidget {
     const root = this.getStoreRoot();
     const addPath = root.endsWith("/") ? `${root}cart/add.js` : `${root}/cart/add.js`;
     return new URL(addPath, window.location.origin).toString();
+  }
+
+  private getStoreProductJsonUrl(handle: string): string {
+    const root = this.getStoreRoot();
+    const path = root.endsWith("/") ? `${root}products/${handle}.js` : `${root}/products/${handle}.js`;
+    return new URL(path, window.location.origin).toString();
   }
 
   private async addToThemeCart(variantId: string): Promise<void> {
@@ -1101,6 +1154,28 @@ class ORJNConciergeWidget {
       };
       throw new Error(payload.description || payload.error || "Failed to add to cart");
     }
+  }
+
+  private async findLiveVariantId(product: Product, sizeLabel: string): Promise<string | null> {
+    const response = await fetch(this.getStoreProductJsonUrl(product.handle), {
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) {
+      throw new Error(`Live product lookup failed (${response.status})`);
+    }
+
+    const payload = (await response.json()) as ShopifyThemeProduct;
+    const sizeOptionIndex = (payload.options ?? []).findIndex((option) => option.toLowerCase() === "size");
+    if (sizeOptionIndex === -1) {
+      return null;
+    }
+
+    const matchingVariant = (payload.variants ?? []).find((variant) => {
+      const options = [variant.option1, variant.option2, variant.option3];
+      return variant.available && options[sizeOptionIndex] === sizeLabel;
+    });
+
+    return matchingVariant ? `gid://shopify/ProductVariant/${matchingVariant.id}` : null;
   }
 
   private buildProductVariantUrl(product: Product, variantId?: string): string {
@@ -1249,7 +1324,7 @@ class ORJNConciergeWidget {
         if (available) {
           sizeBtn.addEventListener("click", (e) => {
             e.stopPropagation();
-            void this.addToCartDirect(product, variantId, sizeBtn);
+            void this.addToCartDirect(product, variantId, label, sizeBtn);
           });
         }
         grid.appendChild(sizeBtn);

@@ -13,6 +13,7 @@ import analyticsRoutes from "./routes/analytics.js";
 import retrievalRoutes from "./routes/retrieval.js";
 import authRoutes from "./routes/auth.js";
 import { syncShopifyProducts } from "./services/sync/shopify-sync.js";
+import { summarizeSyncHealth } from "./services/sync/monitor.js";
 import {
   refreshAllInstalledAdminTokens,
   ensureManagedStorefrontAccessToken,
@@ -26,6 +27,67 @@ const app = express();
 app.set("trust proxy", 1);
 const widgetDistDir = join(__dirname, "../widget");
 const widgetBundlePath = join(widgetDistDir, "orjn-concierge.js");
+let syncInFlight: Promise<{ total: number; upserted: number; deleted: number }> | null = null;
+
+function isSyncAuthorized(req: Request): boolean {
+  return !env.SYNC_SECRET || req.headers["x-sync-secret"] === env.SYNC_SECRET;
+}
+
+async function getSyncHealth() {
+  const [latestRun, latestSuccess] = await Promise.all([
+    prisma.syncLog.findFirst({
+      orderBy: { startedAt: "desc" },
+      select: {
+        status: true,
+        startedAt: true,
+        completedAt: true,
+        error: true,
+      },
+    }),
+    prisma.syncLog.findFirst({
+      where: { status: "completed" },
+      orderBy: { completedAt: "desc" },
+      select: {
+        status: true,
+        startedAt: true,
+        completedAt: true,
+        error: true,
+      },
+    }),
+  ]);
+
+  return summarizeSyncHealth(latestRun, latestSuccess, env.SYNC_STALE_AFTER_HOURS);
+}
+
+async function runCatalogSync(reason: string) {
+  if (syncInFlight) {
+    console.log(`[sync] Reusing in-flight sync for ${reason}`);
+    return syncInFlight;
+  }
+
+  syncInFlight = syncShopifyProducts()
+    .then((result) => {
+      console.log(`[sync] ${reason} sync complete:`, result);
+      return result;
+    })
+    .catch((error) => {
+      console.error(`[sync] ${reason} sync failed:`, error);
+      throw error;
+    })
+    .finally(() => {
+      syncInFlight = null;
+    });
+
+  return syncInFlight;
+}
+
+async function ensureCatalogFreshness() {
+  const health = await getSyncHealth();
+  if (health.isStale) {
+    console.warn("[sync] Catalog freshness watchdog triggered", health);
+    await runCatalogSync("watchdog");
+  }
+}
 
 // Middleware
 app.use(
@@ -110,13 +172,31 @@ app.get("/", (_req: Request, res: Response) => {
 
 // Manual sync trigger
 app.post("/api/sync", async (req: Request, res: Response) => {
-  if (env.SYNC_SECRET && req.headers["x-sync-secret"] !== env.SYNC_SECRET) {
+  if (!isSyncAuthorized(req)) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
   try {
-    const result = await syncShopifyProducts();
+    const result = await runCatalogSync("manual");
     res.json({ status: "ok", ...result });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.get("/api/sync/status", async (req: Request, res: Response) => {
+  if (!isSyncAuthorized(req)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  try {
+    const health = await getSyncHealth();
+    res.json({
+      status: "ok",
+      syncInFlight: Boolean(syncInFlight),
+      ...health,
+    });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
@@ -145,16 +225,22 @@ const server = app.listen(PORT, "0.0.0.0", () => {
       console.error("[shopify] startup admin token refresh failed:", error)
     );
 
-    syncShopifyProducts()
-      .then((r) => console.log("[sync] Initial sync complete:", r))
-      .catch((e) => console.error("[sync] Initial sync failed:", e));
+    runCatalogSync("initial").catch(() => {
+      // logging handled inside runCatalogSync
+    });
 
     const intervalMs = env.SYNC_INTERVAL_MINUTES * 60 * 1000;
     setInterval(() => {
-      syncShopifyProducts()
-        .then((r) => console.log("[sync] Periodic sync complete:", r))
-        .catch((e) => console.error("[sync] Periodic sync failed:", e));
+      runCatalogSync("periodic").catch(() => {
+        // logging handled inside runCatalogSync
+      });
     }, intervalMs);
+
+    setInterval(() => {
+      ensureCatalogFreshness().catch((error) =>
+        console.error("[sync] freshness watchdog failed:", error)
+      );
+    }, 60 * 60 * 1000);
 
     // Re-warm Storefront token every 23h (tokens expire at 24h)
     setInterval(() => {
