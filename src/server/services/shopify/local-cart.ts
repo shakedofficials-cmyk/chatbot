@@ -28,14 +28,6 @@ function buildCheckoutUrl(cart: LocalCart): string {
   if (cart.items.length === 0) {
     return `https://${domain}/cart`;
   }
-  // For a single item with a known handle, land on the product page with the
-  // variant pre-selected. This is more reliable than /cart/ permalinks which
-  // fail when Shopify can't match the variant ID (e.g. stale GID numeric part).
-  if (cart.items.length === 1 && cart.items[0].productHandle) {
-    const item = cart.items[0];
-    const numericId = extractNumericId(item.variantId);
-    return `https://${domain}/products/${item.productHandle}?variant=${numericId}`;
-  }
   const lineItems = cart.items
     .map((item) => `${extractNumericId(item.variantId)}:${item.quantity}`)
     .join(",");

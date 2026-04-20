@@ -603,6 +603,40 @@ function ensureStyles(): void {
     }
 
     /* ─── INPUT AREA ────────────────────────────────────── */
+    .orjn-cart-status {
+      display: none;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      border-top: 2px solid var(--orjn-volt);
+      background: rgba(198, 255, 46, 0.08);
+      color: var(--orjn-text);
+      font-size: 10px;
+      line-height: 1.5;
+      font-family: 'Inter', monospace;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      flex-shrink: 0;
+    }
+
+    .orjn-cart-status-text {
+      color: var(--orjn-text);
+    }
+
+    .orjn-cart-link {
+      flex-shrink: 0;
+      color: var(--orjn-volt);
+      text-decoration: none;
+      font-size: 8px;
+      letter-spacing: 0.18em;
+      font-weight: 700;
+    }
+
+    .orjn-cart-link:hover {
+      color: #d4ff50;
+    }
+
     .orjn-input-area {
       display: flex;
       align-items: stretch;
@@ -835,6 +869,9 @@ class ORJNConciergeWidget {
   private readonly sendButton: HTMLButtonElement;
   private readonly errorBar: HTMLDivElement;
   private readonly errorText: HTMLSpanElement;
+  private readonly cartStatusBar: HTMLDivElement;
+  private readonly cartStatusText: HTMLSpanElement;
+  private readonly cartStatusLink: HTMLAnchorElement;
 
   constructor(container: HTMLElement) {
     ensureStyles();
@@ -914,6 +951,16 @@ class ORJNConciergeWidget {
     const retry = createButton("RETRY", "orjn-retry-btn", () => this.retryLast());
     this.errorBar.append(this.errorText, retry);
 
+    this.cartStatusBar = document.createElement("div");
+    this.cartStatusBar.className = "orjn-cart-status";
+    this.cartStatusText = document.createElement("span");
+    this.cartStatusText.className = "orjn-cart-status-text";
+    this.cartStatusLink = document.createElement("a");
+    this.cartStatusLink.className = "orjn-cart-link";
+    this.cartStatusLink.href = this.getStoreCartUrl();
+    this.cartStatusLink.textContent = "VIEW CART →";
+    this.cartStatusBar.append(this.cartStatusText, this.cartStatusLink);
+
     // ── Input Area ────────────────────────────────────────
     const inputArea = document.createElement("div");
     inputArea.className = "orjn-input-area";
@@ -937,7 +984,7 @@ class ORJNConciergeWidget {
     this.sendButton.appendChild(createSendIcon());
 
     inputArea.append(this.input, this.sendButton);
-    this.panel.append(header, this.messages, this.errorBar, inputArea);
+    this.panel.append(header, this.messages, this.errorBar, this.cartStatusBar, inputArea);
     this.shell.append(this.launcher, this.panel);
     container.appendChild(this.shell);
 
@@ -993,21 +1040,18 @@ class ORJNConciergeWidget {
   private async addToCartDirect(product: Product, variantId: string, btn: HTMLButtonElement): Promise<void> {
     btn.classList.add("adding");
     btn.disabled = true;
-    const checkoutWindow = this.openPendingCheckoutWindow();
 
     try {
-      const cart = await this.addToCartViaServer(product, variantId);
-      this.cartId = cart.cartId;
+      await this.addToThemeCart(variantId);
       void this.logAnalytics("add_to_cart", { productHandle: product.handle, variantId });
-      this.navigateCheckoutWindow(checkoutWindow, cart.checkoutUrl);
+      this.hideError();
+      this.showCartStatus(`${product.title} added to cart.`);
       btn.classList.remove("adding");
       btn.disabled = false;
     } catch {
-      if (checkoutWindow && !checkoutWindow.closed) {
-        checkoutWindow.close();
-      }
       btn.classList.remove("adding");
       btn.disabled = false;
+      this.showError("Unable to add that size right now.");
       const original = btn.textContent ?? "";
       btn.textContent = "ERR — RETRY";
       setTimeout(() => {
@@ -1016,57 +1060,47 @@ class ORJNConciergeWidget {
     }
   }
 
-  private openPendingCheckoutWindow(): Window | null {
-    const popup = window.open("", "_blank");
-    if (popup) {
-      popup.document.title = "ORJN Checkout";
-      popup.document.body.style.margin = "0";
-      popup.document.body.style.background = "#0A0A0A";
-      popup.document.body.style.color = "#FFFFFF";
-      popup.document.body.style.fontFamily = "Inter, Helvetica, Arial, sans-serif";
-      popup.document.body.style.display = "grid";
-      popup.document.body.style.placeItems = "center";
-      popup.document.body.innerHTML = "<div style=\"font-size:14px;letter-spacing:.08em;text-transform:uppercase;\">opening checkout...</div>";
-    }
-    return popup;
+  private getStoreRoot(): string {
+    const root = (window as typeof window & { Shopify?: { routes?: { root?: string } } }).Shopify?.routes?.root;
+    return root && root.startsWith("/") ? root : "/";
   }
 
-  private navigateCheckoutWindow(checkoutWindow: Window | null, checkoutUrl: string): void {
-    if (checkoutWindow && !checkoutWindow.closed) {
-      checkoutWindow.location.replace(checkoutUrl);
-      return;
-    }
-
-    window.location.href = checkoutUrl;
+  private getStoreCartUrl(): string {
+    const root = this.getStoreRoot();
+    const cartPath = root.endsWith("/") ? `${root}cart` : `${root}/cart`;
+    return new URL(cartPath, window.location.origin).toString();
   }
 
-  private async addToCartViaServer(
-    product: Product,
-    variantId: string
-  ): Promise<{ cartId: string; checkoutUrl: string }> {
-    const response = await fetch(`${this.config.apiBaseUrl}/api/cart/add`, {
+  private getStoreCartAddUrl(): string {
+    const root = this.getStoreRoot();
+    const addPath = root.endsWith("/") ? `${root}cart/add.js` : `${root}/cart/add.js`;
+    return new URL(addPath, window.location.origin).toString();
+  }
+
+  private async addToThemeCart(variantId: string): Promise<void> {
+    const numericVariantId = Number(variantId.split("/").pop());
+    if (!Number.isFinite(numericVariantId)) {
+      throw new Error("Invalid variant");
+    }
+
+    const response = await fetch(this.getStoreCartAddUrl(), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
       body: JSON.stringify({
-        cartId: this.cartId ?? undefined,
-        variantId,
-        variantTitle: product.variants.find((variant) => variant.id === variantId)?.title,
-        productTitle: product.title,
-        productHandle: product.handle,
-        price: product.variants.find((variant) => variant.id === variantId)?.price
-          ?? product.priceRange.minVariantPrice,
+        items: [{ id: numericVariantId, quantity: 1 }],
       }),
     });
 
     if (!response.ok) {
-      const payload = (await response.json().catch(() => ({ error: "Failed to add to cart" }))) as {
+      const payload = (await response.json().catch(() => ({ description: "Failed to add to cart" }))) as {
+        description?: string;
         error?: string;
       };
-      throw new Error(payload.error || "Failed to add to cart");
+      throw new Error(payload.description || payload.error || "Failed to add to cart");
     }
-
-    const payload = (await response.json()) as { cartId: string; checkoutUrl: string };
-    return payload;
   }
 
   private buildProductVariantUrl(product: Product, variantId?: string): string {
@@ -1075,6 +1109,12 @@ class ORJNConciergeWidget {
     return numericId
       ? `https://${domain}/products/${product.handle}?variant=${numericId}`
       : `https://${domain}/products/${product.handle}`;
+  }
+
+  private showCartStatus(message: string): void {
+    this.cartStatusText.textContent = message;
+    this.cartStatusLink.href = this.getStoreCartUrl();
+    this.cartStatusBar.style.display = "flex";
   }
 
   private async logAnalytics(name: string, payload: Record<string, unknown> = {}): Promise<void> {
