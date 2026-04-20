@@ -68,6 +68,13 @@ router.post("/", async (req: Request, res: Response) => {
     );
 
     const hasMore = result.products.length > PRODUCTS_PER_RESPONSE;
+    // Use the cleanest detected term for the "View More" search URL
+    const searchTerm =
+      understanding.entities.silhouette ??
+      understanding.entities.model ??
+      understanding.entities.brand ??
+      understanding.entities.category ??
+      understanding.normalizedQuery;
     const responseMessage: ChatMessage = {
       id: nanoid(),
       role: "assistant",
@@ -76,7 +83,7 @@ router.post("/", async (req: Request, res: Response) => {
       comparison: result.comparison ?? undefined,
       cartAction: result.cartAction ?? undefined,
       viewAllUrl: hasMore
-        ? `https://${env.SHOPIFY_STORE_DOMAIN}/search?q=${encodeURIComponent(message)}`
+        ? `https://${env.SHOPIFY_STORE_DOMAIN}/search?q=${encodeURIComponent(searchTerm)}`
         : undefined,
       timestamp: Date.now(),
     };
