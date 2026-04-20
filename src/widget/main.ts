@@ -7,14 +7,6 @@ type Role = "user" | "assistant";
 interface WidgetConfig {
   apiBaseUrl: string;
   shopDomain?: string;
-  storefrontToken?: string;
-  storefrontApiVersion?: string;
-}
-
-interface StorefrontConfig {
-  shopDomain: string;
-  storefrontToken: string | null;
-  apiVersion: string;
 }
 
 const STYLE_ID = "orjn-concierge-styles";
@@ -28,7 +20,6 @@ function getConfig(): WidgetConfig {
   return {
     apiBaseUrl: configuredApiUrl.replace(/\/+$/, ""),
     shopDomain: runtimeConfig?.shopDomain,
-    storefrontToken: runtimeConfig?.storefrontToken,
   };
 }
 
@@ -834,7 +825,6 @@ class ORJNConciergeWidget {
   private lastMessage = "";
   private isLoading = false;
   private hasLoggedOpen = false;
-  private storefrontConfig: StorefrontConfig | null = null;
 
   private readonly shell: HTMLDivElement;
   private readonly launcher: HTMLButtonElement;
@@ -952,27 +942,6 @@ class ORJNConciergeWidget {
     container.appendChild(this.shell);
 
     this.setupViewportHandler();
-    void this.loadStorefrontConfig();
-  }
-
-  private async loadStorefrontConfig(): Promise<void> {
-    // If shopDomain + token already supplied via __ORJN_CONFIG__, use them.
-    if (this.config.shopDomain && this.config.storefrontToken !== undefined) {
-      this.storefrontConfig = {
-        shopDomain: this.config.shopDomain,
-        storefrontToken: this.config.storefrontToken ?? null,
-        apiVersion: "2024-01",
-      };
-      return;
-    }
-    try {
-      const res = await fetch(`${this.config.apiBaseUrl}/api/widget-config`);
-      if (res.ok) {
-        this.storefrontConfig = (await res.json()) as StorefrontConfig;
-      }
-    } catch {
-      // Non-fatal — cart will fall back to product page URL
-    }
   }
 
   private setupViewportHandler(): void {
@@ -1024,13 +993,19 @@ class ORJNConciergeWidget {
   private async addToCartDirect(product: Product, variantId: string, btn: HTMLButtonElement): Promise<void> {
     btn.classList.add("adding");
     btn.disabled = true;
+    const checkoutWindow = this.openPendingCheckoutWindow();
 
     try {
-      const checkoutUrl = await this.createShopifyCart(variantId, product);
-      this.cartId = null; // local cart no longer relevant once Shopify handles it
+      const cart = await this.addToCartViaServer(product, variantId);
+      this.cartId = cart.cartId;
       void this.logAnalytics("add_to_cart", { productHandle: product.handle, variantId });
-      window.open(checkoutUrl, "_blank", "noopener,noreferrer");
+      this.navigateCheckoutWindow(checkoutWindow, cart.checkoutUrl);
+      btn.classList.remove("adding");
+      btn.disabled = false;
     } catch {
+      if (checkoutWindow && !checkoutWindow.closed) {
+        checkoutWindow.close();
+      }
       btn.classList.remove("adding");
       btn.disabled = false;
       const original = btn.textContent ?? "";
@@ -1041,57 +1016,65 @@ class ORJNConciergeWidget {
     }
   }
 
-  // Call Shopify Storefront API directly from the browser (Storefront tokens are
-  // designed to be public — Shopify explicitly supports this for headless commerce).
-  // Falls back to /products/{handle}?variant={id} if the API call fails.
-  private async createShopifyCart(variantId: string, product: Product): Promise<string> {
-    const sf = this.storefrontConfig;
-    const shopDomain = sf?.shopDomain ?? this.config.shopDomain;
+  private openPendingCheckoutWindow(): Window | null {
+    const popup = window.open("", "_blank");
+    if (popup) {
+      popup.document.title = "ORJN Checkout";
+      popup.document.body.style.margin = "0";
+      popup.document.body.style.background = "#0A0A0A";
+      popup.document.body.style.color = "#FFFFFF";
+      popup.document.body.style.fontFamily = "Inter, Helvetica, Arial, sans-serif";
+      popup.document.body.style.display = "grid";
+      popup.document.body.style.placeItems = "center";
+      popup.document.body.innerHTML = "<div style=\"font-size:14px;letter-spacing:.08em;text-transform:uppercase;\">opening checkout...</div>";
+    }
+    return popup;
+  }
 
-    if (shopDomain) {
-      const apiVersion = sf?.apiVersion ?? "2024-01";
-      const endpoint = `https://${shopDomain}/api/${apiVersion}/graphql.json`;
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (sf?.storefrontToken) {
-        headers["X-Shopify-Storefront-Access-Token"] = sf.storefrontToken;
-      }
-
-      const mutation = `
-        mutation CartCreate($variantId: ID!) {
-          cartCreate(input: { lines: [{ merchandiseId: $variantId, quantity: 1 }] }) {
-            cart { id checkoutUrl }
-            userErrors { field message }
-          }
-        }
-      `;
-
-      try {
-        const res = await fetch(endpoint, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ query: mutation, variables: { variantId } }),
-        });
-
-        if (res.ok) {
-          const json = (await res.json()) as {
-            data?: { cartCreate?: { cart?: { id: string; checkoutUrl: string }; userErrors?: { message: string }[] } };
-            errors?: { message: string }[];
-          };
-          const cart = json.data?.cartCreate?.cart;
-          const errors = json.data?.cartCreate?.userErrors ?? json.errors ?? [];
-          if (cart?.checkoutUrl && errors.length === 0) {
-            return cart.checkoutUrl;
-          }
-        }
-      } catch {
-        // Network error — fall through to product page fallback
-      }
+  private navigateCheckoutWindow(checkoutWindow: Window | null, checkoutUrl: string): void {
+    if (checkoutWindow && !checkoutWindow.closed) {
+      checkoutWindow.location.replace(checkoutUrl);
+      return;
     }
 
-    // Fallback: product page with variant pre-selected
-    const numericId = variantId.split("/").pop() ?? variantId;
-    const domain = shopDomain ?? "orjn.myshopify.com";
-    return `https://${domain}/products/${product.handle}?variant=${numericId}`;
+    window.location.href = checkoutUrl;
+  }
+
+  private async addToCartViaServer(
+    product: Product,
+    variantId: string
+  ): Promise<{ cartId: string; checkoutUrl: string }> {
+    const response = await fetch(`${this.config.apiBaseUrl}/api/cart/add`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cartId: this.cartId ?? undefined,
+        variantId,
+        variantTitle: product.variants.find((variant) => variant.id === variantId)?.title,
+        productTitle: product.title,
+        productHandle: product.handle,
+        price: product.variants.find((variant) => variant.id === variantId)?.price
+          ?? product.priceRange.minVariantPrice,
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({ error: "Failed to add to cart" }))) as {
+        error?: string;
+      };
+      throw new Error(payload.error || "Failed to add to cart");
+    }
+
+    const payload = (await response.json()) as { cartId: string; checkoutUrl: string };
+    return payload;
+  }
+
+  private buildProductVariantUrl(product: Product, variantId?: string): string {
+    const numericId = variantId?.split("/").pop();
+    const domain = this.config.shopDomain ?? window.location.hostname ?? "orjn.myshopify.com";
+    return numericId
+      ? `https://${domain}/products/${product.handle}?variant=${numericId}`
+      : `https://${domain}/products/${product.handle}`;
   }
 
   private async logAnalytics(name: string, payload: Record<string, unknown> = {}): Promise<void> {
@@ -1209,7 +1192,7 @@ class ORJNConciergeWidget {
 
       if (sizeVariants.length === 0) {
         // Fallback: open product page
-        const url = `https://${this.config.shopDomain ?? "orjn.myshopify.com"}/products/${product.handle}`;
+        const url = this.buildProductVariantUrl(product);
         window.open(url, "_blank", "noopener,noreferrer");
         return;
       }

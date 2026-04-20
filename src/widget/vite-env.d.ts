@@ -12,6 +12,5 @@ interface Window {
   __ORJN_CONFIG__?: {
     apiUrl?: string;
     shopDomain?: string;
-    storefrontToken?: string;
   };
 }

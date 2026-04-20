@@ -1,8 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
-import { cartCreateWithLine } from "../services/shopify/storefront.js";
-import { localCartCreate, localCartAddLines } from "../services/shopify/local-cart.js";
-import { hasLiveShopifyStore } from "../config.js";
+import { addVariantToCart } from "../services/shopify/direct-cart.js";
 
 const router = Router();
 
@@ -22,34 +20,21 @@ router.post("/add", async (req: Request, res: Response) => {
     return;
   }
 
-  const { variantId, cartId, variantTitle, productTitle, productHandle, price } = parsed.data;
-
-  // Try Shopify Storefront API first (works tokenless for cart ops).
-  // Fall back to local cart (which builds a /products/ URL) if Shopify call fails.
-  if (hasLiveShopifyStore) {
-    try {
-      const cart = await cartCreateWithLine(variantId, 1);
-      res.json({ cartId: cart.id, checkoutUrl: cart.checkoutUrl });
-      return;
-    } catch (err) {
-      console.error("[cart/add] Storefront API failed, falling back to local cart:", err);
-    }
-  }
-
-  // Local-cart fallback — builds /products/{handle}?variant={id} URL
-  let resolvedCartId = cartId;
-  if (!resolvedCartId) {
-    const newCart = localCartCreate();
-    resolvedCartId = newCart.id;
-  }
-  const localCart = localCartAddLines(resolvedCartId, variantId, 1, {
-    variantTitle,
-    productTitle,
-    productHandle,
-    price,
+  const result = await addVariantToCart({
+    variantId: parsed.data.variantId,
+    cartId: parsed.data.cartId,
+    variantTitle: parsed.data.variantTitle,
+    productTitle: parsed.data.productTitle,
+    productHandle: parsed.data.productHandle,
+    price: parsed.data.price,
   });
 
-  res.json({ cartId: localCart.id, checkoutUrl: localCart.checkoutUrl });
+  res.json({
+    cartId: result.cart.id,
+    checkoutUrl: result.cart.checkoutUrl,
+    provider: result.provider,
+    reusedExistingCart: result.reusedExistingCart,
+  });
 });
 
 export default router;

@@ -13,7 +13,11 @@ import analyticsRoutes from "./routes/analytics.js";
 import retrievalRoutes from "./routes/retrieval.js";
 import authRoutes from "./routes/auth.js";
 import { syncShopifyProducts } from "./services/sync/shopify-sync.js";
-import { refreshAllInstalledAdminTokens, ensureManagedStorefrontAccessToken } from "./services/shopify/admin.js";
+import {
+  refreshAllInstalledAdminTokens,
+  ensureManagedStorefrontAccessToken,
+  getStorefrontAccessToken,
+} from "./services/shopify/admin.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -81,10 +85,11 @@ app.use("/auth", authRoutes);
 
 // Widget config — exposes the Storefront token to the client-side widget.
 // Storefront tokens are designed to be public (Shopify explicitly states this).
-app.get("/api/widget-config", (_req: Request, res: Response) => {
+app.get("/api/widget-config", async (_req: Request, res: Response) => {
+  const storefrontToken = await getStorefrontAccessToken(env.SHOPIFY_STORE_DOMAIN);
   res.json({
     shopDomain: env.SHOPIFY_STORE_DOMAIN,
-    storefrontToken: env.SHOPIFY_STOREFRONT_ACCESS_TOKEN || null,
+    storefrontToken,
     apiVersion: "2024-01",
   });
 });
