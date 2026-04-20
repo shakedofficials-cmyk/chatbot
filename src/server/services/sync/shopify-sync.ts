@@ -1,5 +1,5 @@
 import { prisma } from "../../db/client.js";
-import { env } from "../../config.js";
+import { env, hasLiveShopifyStore } from "../../config.js";
 import type { Product, ProductVariant, ProductImage } from "../../../shared/types.js";
 import {
   buildEmbeddingText,
@@ -34,16 +34,57 @@ interface StorefrontProductPage {
 }
 
 /**
+ * Fetch all products via the Shopify Admin REST API (requires SHOPIFY_ADMIN_ACCESS_TOKEN).
+ * Uses cursor-based pagination via the Link header — more reliable than page-based.
+ * Returns full inventory data including accurate variant availability.
+ */
+async function fetchAllAdminProducts(): Promise<Product[]> {
+  const all: Product[] = [];
+  let url: string | null =
+    `https://${env.SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/products.json?limit=250&fields=id,title,handle,vendor,product_type,tags,variants,images,options,status`;
+
+  while (url) {
+    const currentUrl: string = url;
+    const res: Response = await fetch(currentUrl, {
+      headers: {
+        "X-Shopify-Access-Token": env.SHOPIFY_ADMIN_ACCESS_TOKEN,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!res.ok) {
+      throw new Error(`Shopify Admin API error: ${res.status} ${res.statusText}`);
+    }
+
+    const data = (await res.json()) as { products: any[] };
+    for (const raw of data.products) {
+      // Skip archived/draft products — only sync active ones
+      if (raw.status && raw.status !== "active") continue;
+      all.push(mapAdminProduct(raw));
+    }
+
+    // Parse Link header for cursor-based next page
+    const linkHeader: string = res.headers.get("Link") ?? "";
+    const nextMatch: RegExpMatchArray | null = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+    url = nextMatch ? nextMatch[1] : null;
+  }
+
+  return all;
+}
+
+/**
  * Fetch all products from Shopify's public REST API (/products.json).
  * This endpoint requires no authentication token.
+ * Uses Link header cursor pagination (page-based is deprecated).
  */
 async function fetchAllShopifyProducts(): Promise<Product[]> {
   const all: Product[] = [];
-  let page = 1;
+  let url: string | null =
+    `https://${env.SHOPIFY_STORE_DOMAIN}/products.json?limit=250`;
 
-  while (true) {
-    const url = `https://${env.SHOPIFY_STORE_DOMAIN}/products.json?limit=250&page=${page}`;
-    const res = await fetch(url);
+  while (url) {
+    const currentUrl: string = url;
+    const res: Response = await fetch(currentUrl);
 
     if (!res.ok) {
       throw new Error(`Shopify REST API error: ${res.status} ${res.statusText}`);
@@ -56,7 +97,9 @@ async function fetchAllShopifyProducts(): Promise<Product[]> {
       all.push(mapRestProduct(raw));
     }
 
-    page++;
+    const linkHeader: string = res.headers.get("Link") ?? "";
+    const nextMatch: RegExpMatchArray | null = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+    url = nextMatch ? nextMatch[1] : null;
   }
 
   return all;
@@ -89,6 +132,81 @@ async function fetchAllStorefrontProducts(): Promise<Product[]> {
   }
 
   return all;
+}
+
+/**
+ * Map a Shopify Admin REST product to our shared Product type.
+ * Admin API returns inventory_quantity and inventory_policy for accurate availability.
+ */
+function mapAdminProduct(raw: any): Product {
+  const variants: ProductVariant[] = (raw.variants ?? []).map(
+    (v: any, _i: number): ProductVariant => {
+      const selectedOptions: { name: string; value: string }[] = [];
+      const options: any[] = raw.options ?? [];
+      for (let oi = 0; oi < options.length; oi++) {
+        const val = v[`option${oi + 1}`];
+        if (val) selectedOptions.push({ name: options[oi].name, value: val });
+      }
+
+      // Accurate availability: in stock when inventory_quantity > 0 OR inventory_policy allows oversell
+      const inventoryQty: number = v.inventory_quantity ?? 0;
+      const inventoryPolicy: string = v.inventory_policy ?? "deny";
+      const inventoryMgmt: string | null = v.inventory_management ?? null;
+      const availableForSale =
+        inventoryMgmt === null || inventoryPolicy === "continue" || inventoryQty > 0;
+
+      const variantImage = v.image_id && (raw.images ?? []).length > 0
+        ? (() => {
+            const img = (raw.images as any[]).find((i: any) => i.id === v.image_id);
+            return img
+              ? { url: img.src, altText: img.alt ?? null, width: img.width ?? undefined, height: img.height ?? undefined }
+              : null;
+          })()
+        : null;
+
+      return {
+        id: `gid://shopify/ProductVariant/${v.id}`,
+        title: v.title,
+        availableForSale,
+        quantityAvailable: inventoryMgmt !== null ? inventoryQty : null,
+        price: { amount: v.price, currencyCode: "USD" },
+        compareAtPrice: v.compare_at_price
+          ? { amount: v.compare_at_price, currencyCode: "USD" }
+          : null,
+        selectedOptions,
+        image: variantImage,
+      };
+    }
+  );
+
+  const images: ProductImage[] = (raw.images ?? []).map((img: any) => ({
+    url: img.src,
+    altText: img.alt ?? null,
+    width: img.width ?? undefined,
+    height: img.height ?? undefined,
+  }));
+
+  const prices = variants.map((v) => parseFloat(v.price.amount)).filter((p) => !isNaN(p));
+  const minPrice = prices.length > 0 ? Math.min(...prices).toFixed(2) : "0.00";
+  const maxPrice = prices.length > 0 ? Math.max(...prices).toFixed(2) : "0.00";
+
+  return {
+    id: `gid://shopify/Product/${raw.id}`,
+    handle: raw.handle,
+    title: raw.title,
+    description: raw.body_html?.replace(/<[^>]*>/g, "") ?? "",
+    vendor: raw.vendor ?? "",
+    productType: raw.product_type ?? "",
+    tags: typeof raw.tags === "string" ? raw.tags.split(", ").filter(Boolean) : raw.tags ?? [],
+    images,
+    options: (raw.options ?? []).map((o: any) => ({ name: o.name, values: o.values })),
+    variants,
+    priceRange: {
+      minVariantPrice: { amount: minPrice, currencyCode: "USD" },
+      maxVariantPrice: { amount: maxPrice, currencyCode: "USD" },
+    },
+    metafields: {},
+  };
 }
 
 /** Map a Shopify REST API product to our shared Product type. */
@@ -324,24 +442,33 @@ export async function syncShopifyProducts(): Promise<{
 
   try {
     await ensureDefaultCatalogSynonyms();
-    let storefrontToken: string | null = null;
-    try {
-      storefrontToken = await ensureManagedStorefrontAccessToken(env.SHOPIFY_STORE_DOMAIN);
-    } catch (error) {
-      console.warn("[sync] Unable to provision managed Storefront token. Falling back if possible.", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
     let products: Product[];
 
-    if (storefrontToken) {
-      console.log("[sync] Fetching all products from Shopify Storefront GraphQL...");
-      products = await fetchAllStorefrontProducts();
-      console.log(`[sync] Fetched ${products.length} products from Shopify Storefront GraphQL`);
+    if (env.SHOPIFY_ADMIN_ACCESS_TOKEN && hasLiveShopifyStore) {
+      // Admin API gives accurate inventory_quantity per variant — preferred path
+      console.log("[sync] Fetching products via Shopify Admin REST API...");
+      products = await fetchAllAdminProducts();
+      console.log(`[sync] Fetched ${products.length} active products from Admin API`);
     } else {
-      console.log("[sync] No managed Storefront token found. Falling back to public Shopify REST catalog...");
-      products = await fetchAllShopifyProducts();
-      console.log(`[sync] Fetched ${products.length} products from Shopify public catalog`);
+      // Fall back to Storefront GraphQL if we have a managed token
+      let storefrontToken: string | null = null;
+      try {
+        storefrontToken = await ensureManagedStorefrontAccessToken(env.SHOPIFY_STORE_DOMAIN);
+      } catch (error) {
+        console.warn("[sync] Unable to provision managed Storefront token.", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+
+      if (storefrontToken) {
+        console.log("[sync] Fetching products via Shopify Storefront GraphQL...");
+        products = await fetchAllStorefrontProducts();
+        console.log(`[sync] Fetched ${products.length} products from Storefront GraphQL`);
+      } else {
+        console.log("[sync] No admin or storefront token. Using public REST catalog (limited inventory data)...");
+        products = await fetchAllShopifyProducts();
+        console.log(`[sync] Fetched ${products.length} products from public REST catalog`);
+      }
     }
 
     for (const product of products) {

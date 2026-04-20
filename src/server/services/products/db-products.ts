@@ -178,6 +178,11 @@ function buildWhere(filters: SearchFilters): Prisma.SyncProductWhereInput {
       });
     }
   }
+  if (filters.tags) {
+    // tags is stored as JSON string e.g. '["men","lifestyle","nike"]'
+    // Searching for `"tag"` ensures we match whole tag values, not substrings
+    and.push({ tags: { contains: `"${filters.tags.toLowerCase()}"` } });
+  }
 
   if (and.length > 0) {
     where.AND = and;
@@ -293,6 +298,9 @@ async function lexicalSearch(
         )`
       );
     }
+  }
+  if (filters.tags) {
+    clauses.push(Prisma.sql`p."tags" ILIKE ${`%"${filters.tags.toLowerCase()}"%`}`);
   }
 
   const hasWhereClauses = clauses.length > 0;

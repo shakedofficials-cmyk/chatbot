@@ -88,6 +88,7 @@ async function handleSearchProducts(
     size: input.size,
     productType: input.product_type,
     inStock: input.in_stock,
+    tags: input.tags,
   };
 
   const recentProducts = context.recentProductHandles?.length

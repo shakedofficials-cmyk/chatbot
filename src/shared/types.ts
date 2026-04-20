@@ -107,6 +107,7 @@ export interface SearchFilters {
   size?: string;
   productType?: string;
   inStock?: boolean;
+  tags?: string;
 }
 
 export type QueryIntent =

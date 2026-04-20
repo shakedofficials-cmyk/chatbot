@@ -12,6 +12,7 @@ import cartRoutes from "./routes/cart.js";
 import analyticsRoutes from "./routes/analytics.js";
 import retrievalRoutes from "./routes/retrieval.js";
 import authRoutes from "./routes/auth.js";
+import webhookRoutes from "./routes/webhooks.js";
 import { syncShopifyProducts } from "./services/sync/shopify-sync.js";
 import { summarizeSyncHealth } from "./services/sync/monitor.js";
 import {
@@ -103,6 +104,13 @@ app.use(
     credentials: true,
   })
 );
+// Capture raw body for webhook HMAC verification before JSON parsing
+app.use((req, _res, next) => {
+  let data = Buffer.alloc(0);
+  req.on("data", (chunk: Buffer) => { data = Buffer.concat([data, chunk]); });
+  req.on("end", () => { (req as any).rawBody = data; next(); });
+  req.on("error", next);
+});
 app.use(express.json({ limit: "100kb" }));
 
 // Serve the widget bundle with headers that allow Shopify storefronts to load it cross-origin.
@@ -144,6 +152,7 @@ app.use("/api/cart", cartRoutes);
 app.use("/api/analytics", analyticsLimiter, analyticsRoutes);
 app.use("/api/retrieval", retrievalRoutes);
 app.use("/auth", authRoutes);
+app.use("/api/webhooks", webhookRoutes);
 
 // Widget config — exposes the Storefront token to the client-side widget.
 // Storefront tokens are designed to be public (Shopify explicitly states this).

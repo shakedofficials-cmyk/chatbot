@@ -68,13 +68,18 @@ router.post("/", async (req: Request, res: Response) => {
     );
 
     const hasMore = result.products.length > PRODUCTS_PER_RESPONSE;
-    // Use the cleanest detected term for the "View More" search URL
-    const searchTerm =
+    // Use the cleanest detected term for the "View More" search URL.
+    // If no specific entity was extracted, strip common intent prefixes from the normalized query.
+    const rawSearchTerm =
       understanding.entities.silhouette ??
       understanding.entities.model ??
       understanding.entities.brand ??
       understanding.entities.category ??
       understanding.normalizedQuery;
+    const searchTerm = rawSearchTerm
+      .replace(/^(show\s+me|i\s+want|find\s+me|get\s+me|i\s+need|look\s+for|search\s+for|give\s+me)\s+/i, "")
+      .replace(/\s+(options|shoes|sneakers|pairs|products|items)$/i, "")
+      .trim() || rawSearchTerm;
     const responseMessage: ChatMessage = {
       id: nanoid(),
       role: "assistant",

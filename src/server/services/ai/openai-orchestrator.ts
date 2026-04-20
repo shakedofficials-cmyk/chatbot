@@ -68,7 +68,15 @@ STORE NAVIGATION:
 - Store domain: ${SHOP_DOMAIN}
 - If a customer wants to browse a category themselves, give them the URL: https://${SHOP_DOMAIN}/collections/{collection-handle} or https://${SHOP_DOMAIN}/search?q={query}
 - Known collections: /collections/men, /collections/women, /collections/sneakers, /collections/lifestyle, /collections/new-arrivals, /collections/sale
-- Always show the URL as plain text — never as markdown links. Just paste the URL.`;
+- Always show the URL as plain text — never as markdown links. Just paste the URL.
+
+FILTER USAGE — TAGS & GENDER:
+- Products are tagged with audience/lifestyle identifiers like "men", "women", "lifestyle", "running", "basketball", "training".
+- When a user asks for "men's shoes", "women's sneakers", "lifestyle shoes", etc. → pass tags: "men" / "women" / "lifestyle" in search_products.
+- When a user asks for "shoes under $200" → pass max_price: 200 in search_products.
+- When a user asks for "only in-stock" or size-specific → pass in_stock: true.
+- Combine filters freely: "men lifestyle shoes under 150" → brand + tags: "men" + tags: "lifestyle" + max_price: 150. Use the most specific single tag value that fits the request.
+- If a user asks for both men's and lifestyle, prefer tags: "lifestyle" and add category: "lifestyle" as well for broader coverage.`;
 
 interface OrchestratorResult {
   reply: string;

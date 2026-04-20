@@ -20,6 +20,7 @@ export const AI_TOOLS = [
         color: { type: "string", description: "Color filter, e.g. 'black', 'white'" },
         product_type: { type: "string", description: "Normalized product type filter" },
         in_stock: { type: "boolean", description: "Only return in-stock products" },
+        tags: { type: "string", description: "Tag filter for collection/audience e.g. 'men', 'women', 'lifestyle', 'running', 'basketball'" },
       },
       required: ["query"],
     },
