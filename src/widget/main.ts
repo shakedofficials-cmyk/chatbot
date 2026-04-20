@@ -1,19 +1,20 @@
 import type { CartAction, ChatResponse, Product, ProductComparison } from "../shared/types";
 
-declare global {
-  interface Window {
-    __ORJN_CONFIG__?: {
-      apiUrl?: string;
-      shopDomain?: string;
-    };
-  }
-}
+// Window.__ORJN_CONFIG__ is declared in vite-env.d.ts — no re-declaration needed here.
 
 type Role = "user" | "assistant";
 
 interface WidgetConfig {
   apiBaseUrl: string;
   shopDomain?: string;
+  storefrontToken?: string;
+  storefrontApiVersion?: string;
+}
+
+interface StorefrontConfig {
+  shopDomain: string;
+  storefrontToken: string | null;
+  apiVersion: string;
 }
 
 const STYLE_ID = "orjn-concierge-styles";
@@ -27,6 +28,7 @@ function getConfig(): WidgetConfig {
   return {
     apiBaseUrl: configuredApiUrl.replace(/\/+$/, ""),
     shopDomain: runtimeConfig?.shopDomain,
+    storefrontToken: runtimeConfig?.storefrontToken,
   };
 }
 
@@ -832,6 +834,7 @@ class ORJNConciergeWidget {
   private lastMessage = "";
   private isLoading = false;
   private hasLoggedOpen = false;
+  private storefrontConfig: StorefrontConfig | null = null;
 
   private readonly shell: HTMLDivElement;
   private readonly launcher: HTMLButtonElement;
@@ -949,6 +952,27 @@ class ORJNConciergeWidget {
     container.appendChild(this.shell);
 
     this.setupViewportHandler();
+    void this.loadStorefrontConfig();
+  }
+
+  private async loadStorefrontConfig(): Promise<void> {
+    // If shopDomain + token already supplied via __ORJN_CONFIG__, use them.
+    if (this.config.shopDomain && this.config.storefrontToken !== undefined) {
+      this.storefrontConfig = {
+        shopDomain: this.config.shopDomain,
+        storefrontToken: this.config.storefrontToken ?? null,
+        apiVersion: "2024-01",
+      };
+      return;
+    }
+    try {
+      const res = await fetch(`${this.config.apiBaseUrl}/api/widget-config`);
+      if (res.ok) {
+        this.storefrontConfig = (await res.json()) as StorefrontConfig;
+      }
+    } catch {
+      // Non-fatal — cart will fall back to product page URL
+    }
   }
 
   private setupViewportHandler(): void {
@@ -1002,36 +1026,72 @@ class ORJNConciergeWidget {
     btn.disabled = true;
 
     try {
-      const variant = product.variants.find((v) => v.id === variantId);
-      const body = {
-        variantId,
-        cartId: this.cartId ?? undefined,
-        variantTitle: variant?.selectedOptions.map((o) => o.value).join(" / ") ?? "",
-        productTitle: product.title,
-        productHandle: product.handle,
-        price: variant?.price,
-      };
-
-      const res = await fetch(`${this.config.apiBaseUrl}/api/cart/add`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      if (!res.ok) throw new Error("Failed to add to cart");
-
-      const data = (await res.json()) as { cartId: string; checkoutUrl: string };
-      this.cartId = data.cartId;
-
+      const checkoutUrl = await this.createShopifyCart(variantId, product);
+      this.cartId = null; // local cart no longer relevant once Shopify handles it
       void this.logAnalytics("add_to_cart", { productHandle: product.handle, variantId });
-      window.open(data.checkoutUrl, "_blank", "noopener,noreferrer");
+      window.open(checkoutUrl, "_blank", "noopener,noreferrer");
     } catch {
       btn.classList.remove("adding");
       btn.disabled = false;
       const original = btn.textContent ?? "";
-      btn.textContent = "ERR";
-      setTimeout(() => { btn.textContent = original; }, 2000);
+      btn.textContent = "ERR — RETRY";
+      setTimeout(() => {
+        btn.textContent = original;
+      }, 2500);
     }
+  }
+
+  // Call Shopify Storefront API directly from the browser (Storefront tokens are
+  // designed to be public — Shopify explicitly supports this for headless commerce).
+  // Falls back to /products/{handle}?variant={id} if the API call fails.
+  private async createShopifyCart(variantId: string, product: Product): Promise<string> {
+    const sf = this.storefrontConfig;
+    const shopDomain = sf?.shopDomain ?? this.config.shopDomain;
+
+    if (shopDomain) {
+      const apiVersion = sf?.apiVersion ?? "2024-01";
+      const endpoint = `https://${shopDomain}/api/${apiVersion}/graphql.json`;
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (sf?.storefrontToken) {
+        headers["X-Shopify-Storefront-Access-Token"] = sf.storefrontToken;
+      }
+
+      const mutation = `
+        mutation CartCreate($variantId: ID!) {
+          cartCreate(input: { lines: [{ merchandiseId: $variantId, quantity: 1 }] }) {
+            cart { id checkoutUrl }
+            userErrors { field message }
+          }
+        }
+      `;
+
+      try {
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ query: mutation, variables: { variantId } }),
+        });
+
+        if (res.ok) {
+          const json = (await res.json()) as {
+            data?: { cartCreate?: { cart?: { id: string; checkoutUrl: string }; userErrors?: { message: string }[] } };
+            errors?: { message: string }[];
+          };
+          const cart = json.data?.cartCreate?.cart;
+          const errors = json.data?.cartCreate?.userErrors ?? json.errors ?? [];
+          if (cart?.checkoutUrl && errors.length === 0) {
+            return cart.checkoutUrl;
+          }
+        }
+      } catch {
+        // Network error — fall through to product page fallback
+      }
+    }
+
+    // Fallback: product page with variant pre-selected
+    const numericId = variantId.split("/").pop() ?? variantId;
+    const domain = shopDomain ?? "orjn.myshopify.com";
+    return `https://${domain}/products/${product.handle}?variant=${numericId}`;
   }
 
   private async logAnalytics(name: string, payload: Record<string, unknown> = {}): Promise<void> {

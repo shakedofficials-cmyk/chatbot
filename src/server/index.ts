@@ -79,6 +79,16 @@ app.use("/api/analytics", analyticsLimiter, analyticsRoutes);
 app.use("/api/retrieval", retrievalRoutes);
 app.use("/auth", authRoutes);
 
+// Widget config — exposes the Storefront token to the client-side widget.
+// Storefront tokens are designed to be public (Shopify explicitly states this).
+app.get("/api/widget-config", (_req: Request, res: Response) => {
+  res.json({
+    shopDomain: env.SHOPIFY_STORE_DOMAIN,
+    storefrontToken: env.SHOPIFY_STOREFRONT_ACCESS_TOKEN || null,
+    apiVersion: "2024-01",
+  });
+});
+
 // Health check - pings DB to catch connection failures
 app.get("/api/health", async (_req: Request, res: Response) => {
   try {
