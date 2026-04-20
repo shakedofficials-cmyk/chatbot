@@ -619,12 +619,12 @@ export async function getProductsByHandles(handles: string[]): Promise<Product[]
 export async function getVariantByOptions(
   handleOrId: string,
   selectedOptions: Record<string, string>
-): Promise<{ product: Product; variant: Product["variants"][0] | null }> {
+): Promise<{ product: Product | null; variant: Product["variants"][0] | null }> {
   const product = handleOrId.startsWith("gid://")
     ? await getProductById(handleOrId)
     : await getProductByHandle(handleOrId);
 
-  if (!product) throw new Error(`Product not found: ${handleOrId}`);
+  if (!product) return { product: null, variant: null };
 
   // Separate size keys from non-size keys so size is matched via EU normalisation
   const sizeEntry = Object.entries(selectedOptions).find(([k]) =>
@@ -684,7 +684,9 @@ export async function getVariantAvailability(
     ? await getProductById(handleOrId)
     : await getProductByHandle(handleOrId);
 
-  if (!product) throw new Error(`Product not found: ${handleOrId}`);
+  if (!product) {
+    return { available: false, quantityAvailable: null, variant: null };
+  }
 
   const variant = product.variants.find((entry) => entry.id === variantId) ?? null;
 

@@ -8,6 +8,7 @@ import { dirname, join } from "path";
 import { env, hasLiveShopifyStore } from "./config.js";
 import { prisma } from "./db/client.js";
 import chatRoutes from "./routes/chat.js";
+import cartRoutes from "./routes/cart.js";
 import analyticsRoutes from "./routes/analytics.js";
 import retrievalRoutes from "./routes/retrieval.js";
 import authRoutes from "./routes/auth.js";
@@ -73,6 +74,7 @@ const analyticsLimiter = rateLimit({
 
 // Routes
 app.use("/api/chat", chatLimiter, chatRoutes);
+app.use("/api/cart", cartRoutes);
 app.use("/api/analytics", analyticsLimiter, analyticsRoutes);
 app.use("/api/retrieval", retrievalRoutes);
 app.use("/auth", authRoutes);

@@ -48,9 +48,9 @@ export async function executeTool(
     case "find_similar_products":
       return handleFindSimilarProducts(input, sessionId, context);
     case "get_variant_by_options":
-      return handleGetVariantByOptions(input);
+      return handleGetVariantByOptions(input, context);
     case "get_variant_availability":
-      return handleGetVariantAvailability(input);
+      return handleGetVariantAvailability(input, context);
     case "compare_products":
       return handleCompareProducts(input, sessionId);
     case "cart_create":
@@ -283,11 +283,27 @@ async function handleFindSimilarProducts(
   };
 }
 
-async function handleGetVariantByOptions(input: Record<string, any>): Promise<ToolResult> {
-  const { product, variant } = await dbProducts.getVariantByOptions(
-    input.handle_or_id,
-    input.selected_options
-  );
+async function handleGetVariantByOptions(
+  input: Record<string, any>,
+  context: ToolExecutionContext
+): Promise<ToolResult> {
+  // Build an ordered list of candidate handles: the explicit one first, then recent context.
+  const candidates: string[] = [];
+  if (input.handle_or_id) candidates.push(String(input.handle_or_id));
+  for (const handle of (context.recentProductHandles ?? []).slice().reverse()) {
+    if (!candidates.includes(handle)) candidates.push(handle);
+  }
+
+  let product: Product | null = null;
+  let variant: Product["variants"][0] | null = null;
+  for (const handle of candidates) {
+    const result = await dbProducts.getVariantByOptions(handle, input.selected_options ?? {});
+    if (result.product) {
+      product = result.product;
+      variant = result.variant;
+      break;
+    }
+  }
 
   // Identify the size input (if any) to build a rich size context
   const sizeKey = Object.keys(input.selected_options ?? {}).find((k) =>
@@ -296,6 +312,18 @@ async function handleGetVariantByOptions(input: Record<string, any>): Promise<To
   const sizeInput: string | undefined = sizeKey
     ? String(input.selected_options[sizeKey])
     : undefined;
+
+  if (!product) {
+    return {
+      content: JSON.stringify({
+        found: false,
+        has_requested_size: false,
+        available_sizes: [],
+        closest_sizes: [],
+        message: `Couldn't resolve the product. Call search_products with the product name first, then retry with handle_or_id.`,
+      }),
+    };
+  }
 
   const matchResult = sizeInput
     ? findBestVariantMatch(product.variants, sizeInput)
@@ -346,13 +374,40 @@ async function handleGetVariantByOptions(input: Record<string, any>): Promise<To
   };
 }
 
-async function handleGetVariantAvailability(input: Record<string, any>): Promise<ToolResult> {
-  const result = await dbProducts.getVariantAvailability(input.variant_id, input.handle_or_id);
+async function handleGetVariantAvailability(
+  input: Record<string, any>,
+  context: ToolExecutionContext
+): Promise<ToolResult> {
+  const handleCandidates: string[] = [];
+  if (input.handle_or_id) handleCandidates.push(String(input.handle_or_id));
+  for (const handle of (context.recentProductHandles ?? []).slice().reverse()) {
+    if (!handleCandidates.includes(handle)) handleCandidates.push(handle);
+  }
 
-  // Load the full product to build available-sizes context
-  const product = input.handle_or_id.startsWith("gid://")
-    ? await dbProducts.getProductById(input.handle_or_id)
-    : await dbProducts.getProductByHandle(input.handle_or_id);
+  let product: Product | null = null;
+  let resolvedHandle: string | null = null;
+  for (const handle of handleCandidates) {
+    const loaded = handle.startsWith("gid://")
+      ? await dbProducts.getProductById(handle)
+      : await dbProducts.getProductByHandle(handle);
+    if (loaded) {
+      product = loaded;
+      resolvedHandle = handle;
+      break;
+    }
+  }
+
+  if (!product || !resolvedHandle) {
+    return {
+      content: JSON.stringify({
+        available: false,
+        has_requested_size: false,
+        message: "Product context missing. Call search_products first.",
+      }),
+    };
+  }
+
+  const result = await dbProducts.getVariantAvailability(input.variant_id, resolvedHandle);
 
   const sizeRaw = result.variant
     ? findSizeOptionValue(result.variant.selectedOptions)

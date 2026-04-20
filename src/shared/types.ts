@@ -181,6 +181,7 @@ export interface ChatMessage {
   products?: Product[];
   comparison?: ProductComparison;
   cartAction?: CartAction;
+  viewAllUrl?: string;
   timestamp: number;
 }
 

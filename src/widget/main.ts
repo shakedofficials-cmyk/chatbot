@@ -417,6 +417,70 @@ function ensureStyles(): void {
       background: #d4ff50;
     }
 
+    /* ─── SIZE PICKER GRID ──────────────────────────────────── */
+    .orjn-size-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+      gap: 4px;
+      padding: 10px 14px 12px;
+    }
+
+    .orjn-size-btn {
+      padding: 8px 2px;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-align: center;
+      background: transparent;
+      border: 1px solid var(--orjn-border);
+      color: var(--orjn-text);
+      cursor: pointer;
+      font-family: 'Inter', monospace;
+      transition: border-color 80ms ease, color 80ms ease, background 80ms ease;
+    }
+
+    .orjn-size-btn:hover:not(:disabled) {
+      border-color: var(--orjn-volt);
+      color: var(--orjn-volt);
+    }
+
+    .orjn-size-btn:disabled {
+      opacity: 0.2;
+      cursor: not-allowed;
+      text-decoration: line-through;
+    }
+
+    .orjn-size-btn.adding {
+      background: var(--orjn-volt);
+      color: #0A0A0A;
+      border-color: var(--orjn-volt);
+      cursor: wait;
+    }
+
+    /* ─── VIEW ALL BUTTON ───────────────────────────────────── */
+    .orjn-view-all-btn {
+      display: block;
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px dashed var(--orjn-border);
+      background: transparent;
+      color: var(--orjn-text-muted);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.22em;
+      text-align: center;
+      text-decoration: none;
+      font-family: 'Inter', monospace;
+      text-transform: uppercase;
+      transition: border-color 120ms ease, color 120ms ease;
+      box-sizing: border-box;
+    }
+
+    .orjn-view-all-btn:hover {
+      border-color: rgba(255,255,255,0.3);
+      color: var(--orjn-text);
+    }
+
     .orjn-checkout-btn {
       display: block;
       width: 100%;
@@ -642,6 +706,10 @@ function ensureStyles(): void {
         border-left: 0;
         border-right: 0;
         border-bottom: 0;
+      }
+
+      .orjn-input-area {
+        padding-bottom: env(safe-area-inset-bottom, 0px);
       }
     }
   `;
@@ -879,11 +947,91 @@ class ORJNConciergeWidget {
     this.panel.append(header, this.messages, this.errorBar, inputArea);
     this.shell.append(this.launcher, this.panel);
     container.appendChild(this.shell);
+
+    this.setupViewportHandler();
+  }
+
+  private setupViewportHandler(): void {
+    if (typeof window === "undefined" || !window.visualViewport) return;
+    const vv = window.visualViewport;
+    const handler = () => {
+      if (!this.panel.classList.contains("open")) return;
+      if (window.innerWidth > 480) return;
+      const keyboardOffset = window.innerHeight - vv.height - vv.offsetTop;
+      this.panel.style.height = `${vv.height}px`;
+      this.panel.style.bottom = `${keyboardOffset}px`;
+    };
+    const resetHandler = () => {
+      if (window.innerWidth > 480) return;
+      this.panel.style.height = "";
+      this.panel.style.bottom = "";
+    };
+    vv.addEventListener("resize", handler);
+    vv.addEventListener("scroll", handler);
+    this.input.addEventListener("blur", resetHandler);
   }
 
   private autoResizeInput(): void {
     this.input.style.height = "auto";
     this.input.style.height = `${Math.min(this.input.scrollHeight, 140)}px`;
+  }
+
+  private getProductSizeVariants(product: Product): Array<{ label: string; variantId: string; available: boolean }> {
+    const seen = new Set<string>();
+    const result: Array<{ label: string; variantId: string; available: boolean }> = [];
+    for (const variant of product.variants) {
+      const sizeOpt = variant.selectedOptions.find((o) => o.name.toLowerCase() === "size");
+      const label = sizeOpt?.value ?? variant.title;
+      if (seen.has(label)) {
+        // Keep the first available if duplicate
+        const existing = result.find((r) => r.label === label);
+        if (existing && !existing.available && variant.availableForSale) {
+          existing.variantId = variant.id;
+          existing.available = true;
+        }
+        continue;
+      }
+      seen.add(label);
+      result.push({ label, variantId: variant.id, available: variant.availableForSale });
+    }
+    return result;
+  }
+
+  private async addToCartDirect(product: Product, variantId: string, btn: HTMLButtonElement): Promise<void> {
+    btn.classList.add("adding");
+    btn.disabled = true;
+
+    try {
+      const variant = product.variants.find((v) => v.id === variantId);
+      const body = {
+        variantId,
+        cartId: this.cartId ?? undefined,
+        variantTitle: variant?.selectedOptions.map((o) => o.value).join(" / ") ?? "",
+        productTitle: product.title,
+        productHandle: product.handle,
+        price: variant?.price,
+      };
+
+      const res = await fetch(`${this.config.apiBaseUrl}/api/cart/add`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) throw new Error("Failed to add to cart");
+
+      const data = (await res.json()) as { cartId: string; checkoutUrl: string };
+      this.cartId = data.cartId;
+
+      void this.logAnalytics("add_to_cart", { productHandle: product.handle, variantId });
+      window.open(data.checkoutUrl, "_blank", "noopener,noreferrer");
+    } catch {
+      btn.classList.remove("adding");
+      btn.disabled = false;
+      const original = btn.textContent ?? "";
+      btn.textContent = "ERR";
+      setTimeout(() => { btn.textContent = original; }, 2000);
+    }
   }
 
   private async logAnalytics(name: string, payload: Record<string, unknown> = {}): Promise<void> {
@@ -991,11 +1139,40 @@ class ORJNConciergeWidget {
 
     card.appendChild(info);
 
+    const sizeVariants = this.getProductSizeVariants(product);
     const action = createButton("SECURE PAIR →", "orjn-product-btn", () => {
       void this.logAnalytics("product_clicked", { productHandle: product.handle });
-      this.input.value = `What sizes do you have for ${product.title}?`;
-      this.autoResizeInput();
-      void this.sendMessage();
+
+      // Toggle size grid
+      const existing = card.querySelector(".orjn-size-grid");
+      if (existing) { existing.remove(); return; }
+
+      if (sizeVariants.length === 0) {
+        // Fallback: open product page
+        const url = `https://${this.config.shopDomain ?? "orjn.myshopify.com"}/products/${product.handle}`;
+        window.open(url, "_blank", "noopener,noreferrer");
+        return;
+      }
+
+      const grid = document.createElement("div");
+      grid.className = "orjn-size-grid";
+
+      for (const { label, variantId, available } of sizeVariants) {
+        const sizeBtn = document.createElement("button");
+        sizeBtn.type = "button";
+        sizeBtn.className = "orjn-size-btn";
+        sizeBtn.textContent = label;
+        sizeBtn.disabled = !available;
+        if (available) {
+          sizeBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            void this.addToCartDirect(product, variantId, sizeBtn);
+          });
+        }
+        grid.appendChild(sizeBtn);
+      }
+
+      card.insertBefore(grid, action);
     });
     card.appendChild(action);
 
@@ -1063,14 +1240,26 @@ class ORJNConciergeWidget {
     text: string,
     products?: Product[],
     comparison?: ProductComparison,
-    cartAction?: CartAction
+    cartAction?: CartAction,
+    viewAllUrl?: string
   ): void {
     this.appendTextMessage("assistant", text);
 
     if (products && products.length > 0) {
       const stack = document.createElement("div");
       stack.className = "orjn-stack";
-      products.slice(0, 4).forEach((p) => stack.appendChild(this.renderProduct(p)));
+      products.slice(0, 5).forEach((p) => stack.appendChild(this.renderProduct(p)));
+
+      if (viewAllUrl) {
+        const viewAll = document.createElement("a");
+        viewAll.className = "orjn-view-all-btn";
+        viewAll.href = viewAllUrl;
+        viewAll.target = "_blank";
+        viewAll.rel = "noopener noreferrer";
+        viewAll.textContent = "VIEW MORE ON ORJN →";
+        stack.appendChild(viewAll);
+      }
+
       this.messages.appendChild(stack);
     }
 
@@ -1155,7 +1344,8 @@ class ORJNConciergeWidget {
         payload.message.content,
         payload.message.products,
         payload.message.comparison,
-        payload.message.cartAction
+        payload.message.cartAction,
+        payload.message.viewAllUrl
       );
     } catch (error) {
       typing.remove();
