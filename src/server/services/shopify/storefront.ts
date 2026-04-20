@@ -6,6 +6,7 @@ import {
   GET_PRODUCT_BY_ID,
   GET_PRODUCTS_BY_IDS,
   CART_CREATE,
+  CART_CREATE_WITH_LINE,
   CART_ADD_LINES,
   CART_UPDATE_LINES,
   CART_GET,
@@ -128,6 +129,14 @@ export async function getProductsByIds(ids: string[]): Promise<Product[]> {
 
 export async function cartCreate(): Promise<Cart> {
   const data = await storefrontQuery<any>(CART_CREATE);
+  if (data.cartCreate.userErrors?.length) {
+    throw new Error(data.cartCreate.userErrors.map((e: any) => e.message).join(", "));
+  }
+  return mapCart(data.cartCreate.cart);
+}
+
+export async function cartCreateWithLine(variantId: string, quantity = 1): Promise<Cart> {
+  const data = await storefrontQuery<any>(CART_CREATE_WITH_LINE, { variantId, quantity });
   if (data.cartCreate.userErrors?.length) {
     throw new Error(data.cartCreate.userErrors.map((e: any) => e.message).join(", "));
   }

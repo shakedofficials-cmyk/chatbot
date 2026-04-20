@@ -96,6 +96,42 @@ export const LIST_ALL_PRODUCTS = `
 
 // ── Cart mutations ──
 
+// Creates a cart and immediately adds one line item — used by the direct size-picker flow.
+export const CART_CREATE_WITH_LINE = `
+  mutation CartCreateWithLine($variantId: ID!, $quantity: Int!) {
+    cartCreate(input: { lines: [{ merchandiseId: $variantId, quantity: $quantity }] }) {
+      cart {
+        id
+        checkoutUrl
+        totalQuantity
+        lines(first: 10) {
+          edges {
+            node {
+              id
+              quantity
+              merchandise {
+                ... on ProductVariant {
+                  id
+                  title
+                  product { title handle }
+                  image { url altText }
+                  price { amount currencyCode }
+                  selectedOptions { name value }
+                }
+              }
+            }
+          }
+        }
+        cost {
+          totalAmount { amount currencyCode }
+          subtotalAmount { amount currencyCode }
+        }
+      }
+      userErrors { field message }
+    }
+  }
+`;
+
 export const CART_CREATE = `
   mutation CartCreate {
     cartCreate {
