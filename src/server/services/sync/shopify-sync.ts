@@ -1,5 +1,5 @@
 import { prisma } from "../../db/client.js";
-import { env, hasLiveShopifyStore } from "../../config.js";
+import { env, hasLiveShopifyStore, hasShopifyClientCredentials } from "../../config.js";
 import type { Product, ProductVariant, ProductImage } from "../../../shared/types.js";
 import {
   buildEmbeddingText,
@@ -18,7 +18,7 @@ import {
 } from "../retrieval/normalize.js";
 import { ensureDefaultCatalogSynonyms } from "../retrieval/synonyms.js";
 import { upsertProductEmbeddingIfNeeded } from "../retrieval/embeddings.js";
-import { ensureManagedStorefrontAccessToken } from "../shopify/admin.js";
+import { ensureManagedStorefrontAccessToken, getOrRefreshClientCredentialsToken } from "../shopify/admin.js";
 import { storefrontQuery } from "../shopify/client.js";
 import { LIST_ALL_PRODUCTS } from "../shopify/queries.js";
 import { mapProduct } from "../shopify/mappers.js";
@@ -35,17 +35,20 @@ interface StorefrontProductPage {
 
 /**
  * Stream all products via the Shopify Admin REST API one page at a time.
- * Yields pages of products so callers can upsert each page and free memory before the next.
+ * Token is fetched/refreshed via client_credentials on each page (cached in-process).
  */
 async function* streamAdminProducts(): AsyncGenerator<Product[]> {
   let url: string | null =
-    `https://${env.SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/products.json?limit=250&fields=id,title,handle,vendor,product_type,tags,variants,images,options,status`;
+    `https://${env.SHOPIFY_STORE_DOMAIN}/admin/api/2026-04/products.json?limit=250&fields=id,title,handle,vendor,product_type,tags,variants,images,options,status`;
 
   while (url) {
+    const adminToken = await getOrRefreshClientCredentialsToken(env.SHOPIFY_STORE_DOMAIN);
+    if (!adminToken) throw new Error("Unable to obtain Admin API token via client_credentials");
+
     const currentUrl: string = url;
     const res: Response = await fetch(currentUrl, {
       headers: {
-        "X-Shopify-Access-Token": env.SHOPIFY_ADMIN_ACCESS_TOKEN,
+        "X-Shopify-Access-Token": adminToken,
         "Content-Type": "application/json",
       },
     });
@@ -450,8 +453,8 @@ export async function syncShopifyProducts(): Promise<{
 
     // Pick the right page stream based on available credentials
     let stream: AsyncGenerator<Product[]>;
-    if (env.SHOPIFY_ADMIN_ACCESS_TOKEN && hasLiveShopifyStore) {
-      console.log("[sync] Streaming products via Shopify Admin REST API...");
+    if (hasShopifyClientCredentials && hasLiveShopifyStore) {
+      console.log("[sync] Streaming products via Shopify Admin REST API (client_credentials)...");
       stream = streamAdminProducts();
     } else {
       let storefrontToken: string | null = null;

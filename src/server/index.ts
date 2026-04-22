@@ -255,8 +255,8 @@ const server = app.listen(PORT, "0.0.0.0", () => {
 
   // Non-blocking initial sync + periodic re-sync
   if (hasLiveShopifyStore) {
-    if (!env.SHOPIFY_ADMIN_ACCESS_TOKEN) {
-      console.warn("[sync] WARNING: SHOPIFY_ADMIN_ACCESS_TOKEN is not set. Inventory availability will be INACCURATE. Set this env var in Railway for accurate product data.");
+    if (!hasLiveShopifyStore) {
+      console.warn("[sync] WARNING: No Shopify store configured. Sync will not run.");
     }
     // Warm the Storefront token on boot (client_credentials flow if creds present)
     ensureManagedStorefrontAccessToken(env.SHOPIFY_STORE_DOMAIN)
