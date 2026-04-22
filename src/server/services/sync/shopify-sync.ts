@@ -34,12 +34,10 @@ interface StorefrontProductPage {
 }
 
 /**
- * Fetch all products via the Shopify Admin REST API (requires SHOPIFY_ADMIN_ACCESS_TOKEN).
- * Uses cursor-based pagination via the Link header — more reliable than page-based.
- * Returns full inventory data including accurate variant availability.
+ * Stream all products via the Shopify Admin REST API one page at a time.
+ * Yields pages of products so callers can upsert each page and free memory before the next.
  */
-async function fetchAllAdminProducts(): Promise<Product[]> {
-  const all: Product[] = [];
+async function* streamAdminProducts(): AsyncGenerator<Product[]> {
   let url: string | null =
     `https://${env.SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/products.json?limit=250&fields=id,title,handle,vendor,product_type,tags,variants,images,options,status`;
 
@@ -57,28 +55,24 @@ async function fetchAllAdminProducts(): Promise<Product[]> {
     }
 
     const data = (await res.json()) as { products: any[] };
+    const page: Product[] = [];
     for (const raw of data.products) {
-      // Skip archived/draft products — only sync active ones
       if (raw.status && raw.status !== "active") continue;
-      all.push(mapAdminProduct(raw));
+      page.push(mapAdminProduct(raw));
     }
+    if (page.length > 0) yield page;
 
-    // Parse Link header for cursor-based next page
     const linkHeader: string = res.headers.get("Link") ?? "";
     const nextMatch: RegExpMatchArray | null = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
     url = nextMatch ? nextMatch[1] : null;
   }
-
-  return all;
 }
 
 /**
- * Fetch all products from Shopify's public REST API (/products.json).
- * Uses since_id pagination — the only cursor strategy that works for
- * unauthenticated requests (Link header cursor requires admin auth).
+ * Stream all products from Shopify's public REST API one page at a time.
+ * Uses since_id pagination — the only cursor strategy that works for unauthenticated requests.
  */
-async function fetchAllShopifyProducts(): Promise<Product[]> {
-  const all: Product[] = [];
+async function* streamShopifyProducts(): AsyncGenerator<Product[]> {
   let sinceId = 0;
 
   while (true) {
@@ -92,19 +86,14 @@ async function fetchAllShopifyProducts(): Promise<Product[]> {
     const data = (await res.json()) as { products: any[] };
     if (data.products.length === 0) break;
 
-    for (const raw of data.products) {
-      all.push(mapRestProduct(raw));
-    }
+    yield data.products.map(mapRestProduct);
 
     sinceId = data.products[data.products.length - 1].id;
     if (data.products.length < 250) break;
   }
-
-  return all;
 }
 
-async function fetchAllStorefrontProducts(): Promise<Product[]> {
-  const all: Product[] = [];
+async function* streamStorefrontProducts(): AsyncGenerator<Product[]> {
   let after: string | null = null;
 
   while (true) {
@@ -114,22 +103,15 @@ async function fetchAllStorefrontProducts(): Promise<Product[]> {
     });
 
     const edges = data.products?.edges ?? [];
-    for (const edge of edges) {
-      if (edge?.node) {
-        all.push(mapProduct(edge.node));
-      }
-    }
+    const page: Product[] = edges
+      .filter((edge) => edge?.node)
+      .map((edge) => mapProduct(edge.node));
+    if (page.length > 0) yield page;
 
-    const pageInfo: { hasNextPage: boolean; endCursor: string | null } | undefined =
-      data.products?.pageInfo;
-    if (!pageInfo?.hasNextPage || !pageInfo.endCursor) {
-      break;
-    }
-
+    const pageInfo = data.products?.pageInfo;
+    if (!pageInfo?.hasNextPage || !pageInfo.endCursor) break;
     after = pageInfo.endCursor;
   }
-
-  return all;
 }
 
 /**
@@ -428,7 +410,7 @@ async function upsertProduct(product: Product): Promise<void> {
   await upsertProductEmbeddingIfNeeded(product.id, embeddingText);
 }
 
-/** Full sync: fetch all Shopify products, upsert into Postgres, remove stale ones. */
+/** Full sync: stream all Shopify products page-by-page, upsert into Postgres, remove stale ones. */
 export async function syncShopifyProducts(): Promise<{
   total: number;
   upserted: number;
@@ -440,15 +422,17 @@ export async function syncShopifyProducts(): Promise<{
 
   try {
     await ensureDefaultCatalogSynonyms();
-    let products: Product[];
 
+    // Collect only IDs (strings — negligible memory) to detect deletions after the stream completes.
+    const seenIds: string[] = [];
+    let total = 0;
+
+    // Pick the right page stream based on available credentials
+    let stream: AsyncGenerator<Product[]>;
     if (env.SHOPIFY_ADMIN_ACCESS_TOKEN && hasLiveShopifyStore) {
-      // Admin API gives accurate inventory_quantity per variant — preferred path
-      console.log("[sync] Fetching products via Shopify Admin REST API...");
-      products = await fetchAllAdminProducts();
-      console.log(`[sync] Fetched ${products.length} active products from Admin API`);
+      console.log("[sync] Streaming products via Shopify Admin REST API...");
+      stream = streamAdminProducts();
     } else {
-      // Fall back to Storefront GraphQL if we have a managed token
       let storefrontToken: string | null = null;
       try {
         storefrontToken = await ensureManagedStorefrontAccessToken(env.SHOPIFY_STORE_DOMAIN);
@@ -460,43 +444,47 @@ export async function syncShopifyProducts(): Promise<{
 
       if (storefrontToken) {
         try {
-          console.log("[sync] Fetching products via Shopify Storefront GraphQL...");
-          products = await fetchAllStorefrontProducts();
-          console.log(`[sync] Fetched ${products.length} products from Storefront GraphQL`);
+          console.log("[sync] Streaming products via Shopify Storefront GraphQL...");
+          stream = streamStorefrontProducts();
         } catch (storefrontErr) {
-          console.warn("[sync] Storefront GraphQL failed, falling back to public REST:", storefrontErr instanceof Error ? storefrontErr.message : String(storefrontErr));
-          products = await fetchAllShopifyProducts();
-          console.log(`[sync] Fetched ${products.length} products from public REST catalog (fallback)`);
+          console.warn("[sync] Storefront GraphQL init failed, falling back to public REST:", storefrontErr instanceof Error ? storefrontErr.message : String(storefrontErr));
+          stream = streamShopifyProducts();
         }
       } else {
         console.log("[sync] No admin or storefront token. Using public REST catalog...");
-        products = await fetchAllShopifyProducts();
-        console.log(`[sync] Fetched ${products.length} products from public REST catalog`);
+        stream = streamShopifyProducts();
       }
     }
 
-    for (const product of products) {
-      await upsertProduct(product);
+    // Process one page at a time — each page is GC-eligible after the loop iteration
+    for await (const page of stream) {
+      for (const product of page) {
+        await upsertProduct(product);
+        seenIds.push(product.id);
+      }
+      total += page.length;
+      console.log(`[sync] Upserted ${total} products so far...`);
     }
 
+    console.log(`[sync] All ${total} products upserted. Checking for deletions...`);
+
     // Delete products that no longer exist in Shopify
-    const shopifyIds = products.map((p) => p.id);
     const { count: deleted } = await prisma.syncProduct.deleteMany({
-      where: { id: { notIn: shopifyIds } },
+      where: { id: { notIn: seenIds } },
     });
 
     await prisma.syncLog.update({
       where: { id: log.id },
       data: {
         status: "completed",
-        productsTotal: products.length,
-        productsUpserted: products.length,
+        productsTotal: total,
+        productsUpserted: total,
         productsDeleted: deleted,
         completedAt: new Date(),
       },
     });
 
-    return { total: products.length, upserted: products.length, deleted };
+    return { total, upserted: total, deleted };
   } catch (err) {
     await prisma.syncLog.update({
       where: { id: log.id },
