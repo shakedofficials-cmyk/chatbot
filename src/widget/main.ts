@@ -1166,39 +1166,34 @@ class ORJNConciergeWidget {
   }
 
   private refreshThemeCartCount(): void {
-    const root = this.getStoreRoot();
-    const cartJsonPath = root.endsWith("/") ? `${root}cart.js` : `${root}/cart.js`;
-    fetch(new URL(cartJsonPath, window.location.origin).toString())
-      .then((r) => r.json())
-      .then((cart: { item_count?: number }) => {
-        const count = cart.item_count ?? 0;
-        const countStr = String(count);
+    // Re-render all cart/header sections via Shopify's Section Rendering API.
+    // This is the only approach that updates both the count badge AND the
+    // cart drawer contents without a full page reload.
+    const sectionEls = Array.from(document.querySelectorAll<HTMLElement>("[id^='shopify-section-']"));
+    const cartSectionIds = sectionEls
+      .map((el) => el.id.replace("shopify-section-", ""))
+      .filter((id) => /cart|header/i.test(id));
 
-        // Update the most common Shopify theme cart-count selectors
-        const selectors = [
-          "[data-cart-count]",
-          "[data-cart-item-count]",
-          "[data-item-count]",
-          ".cart-count",
-          ".cart-count-bubble",
-          "#CartCount",
-          "#cart-count",
-          ".cart__count",
-          ".header__cart-count",
-          "[aria-label*='cart'] span",
-        ];
-        selectors.forEach((sel) => {
-          document.querySelectorAll<HTMLElement>(sel).forEach((el) => {
-            el.textContent = countStr;
-            if (count > 0) el.removeAttribute("hidden");
+    if (cartSectionIds.length > 0) {
+      fetch(`/?sections=${cartSectionIds.join(",")}`)
+        .then((r) => r.json())
+        .then((sections: Record<string, string>) => {
+          const parser = new DOMParser();
+          Object.entries(sections).forEach(([sectionId, html]) => {
+            const wrapper = document.getElementById(`shopify-section-${sectionId}`);
+            if (!wrapper) return;
+            const newEl = parser
+              .parseFromString(html, "text/html")
+              .getElementById(`shopify-section-${sectionId}`);
+            if (newEl) wrapper.replaceWith(newEl);
           });
-        });
+        })
+        .catch(() => {});
+    }
 
-        // Dispatch the event most Shopify themes (Dawn, Impulse, etc.) listen to
-        document.dispatchEvent(new CustomEvent("cart:refresh", { bubbles: true }));
-        document.dispatchEvent(new CustomEvent("cart:updated", { bubbles: true, detail: { cart } }));
-      })
-      .catch(() => {/* non-critical — cart count stays stale */});
+    // Fallback: dispatch events that some themes listen to for cart refresh
+    document.dispatchEvent(new CustomEvent("cart:refresh", { bubbles: true }));
+    document.dispatchEvent(new CustomEvent("cart:updated", { bubbles: true }));
   }
 
   private async findLiveVariantId(product: Product, sizeLabel: string): Promise<string | null> {
