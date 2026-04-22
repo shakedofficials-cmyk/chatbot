@@ -1062,6 +1062,7 @@ class ORJNConciergeWidget {
     try {
       await this.addToThemeCart(variantId);
       void this.logAnalytics("add_to_cart", { productHandle: product.handle, variantId });
+      this.refreshThemeCartCount();
       this.hideError();
       this.showCartStatus(`${product.title} added to cart.`);
       btn.classList.remove("adding");
@@ -1079,6 +1080,7 @@ class ORJNConciergeWidget {
               variantId: liveVariantId,
               recoveredFromStaleVariant: true,
             });
+            this.refreshThemeCartCount();
             this.hideError();
             this.showCartStatus(`${product.title} added to cart.`);
             btn.classList.remove("adding");
@@ -1161,6 +1163,42 @@ class ORJNConciergeWidget {
       };
       throw new Error(payload.description || payload.error || "Failed to add to cart");
     }
+  }
+
+  private refreshThemeCartCount(): void {
+    const root = this.getStoreRoot();
+    const cartJsonPath = root.endsWith("/") ? `${root}cart.js` : `${root}/cart.js`;
+    fetch(new URL(cartJsonPath, window.location.origin).toString())
+      .then((r) => r.json())
+      .then((cart: { item_count?: number }) => {
+        const count = cart.item_count ?? 0;
+        const countStr = String(count);
+
+        // Update the most common Shopify theme cart-count selectors
+        const selectors = [
+          "[data-cart-count]",
+          "[data-cart-item-count]",
+          "[data-item-count]",
+          ".cart-count",
+          ".cart-count-bubble",
+          "#CartCount",
+          "#cart-count",
+          ".cart__count",
+          ".header__cart-count",
+          "[aria-label*='cart'] span",
+        ];
+        selectors.forEach((sel) => {
+          document.querySelectorAll<HTMLElement>(sel).forEach((el) => {
+            el.textContent = countStr;
+            if (count > 0) el.removeAttribute("hidden");
+          });
+        });
+
+        // Dispatch the event most Shopify themes (Dawn, Impulse, etc.) listen to
+        document.dispatchEvent(new CustomEvent("cart:refresh", { bubbles: true }));
+        document.dispatchEvent(new CustomEvent("cart:updated", { bubbles: true, detail: { cart } }));
+      })
+      .catch(() => {/* non-critical — cart count stays stale */});
   }
 
   private async findLiveVariantId(product: Product, sizeLabel: string): Promise<string | null> {
