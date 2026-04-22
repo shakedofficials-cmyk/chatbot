@@ -104,14 +104,10 @@ app.use(
     credentials: true,
   })
 );
-// Capture raw body for webhook HMAC verification before JSON parsing
-app.use((req, _res, next) => {
-  let data = Buffer.alloc(0);
-  req.on("data", (chunk: Buffer) => { data = Buffer.concat([data, chunk]); });
-  req.on("end", () => { (req as any).rawBody = data; next(); });
-  req.on("error", next);
-});
-app.use(express.json({ limit: "100kb" }));
+app.use(express.json({
+  limit: "100kb",
+  verify: (req: any, _res, buf) => { req.rawBody = buf; },
+}));
 
 // Serve the widget bundle with headers that allow Shopify storefronts to load it cross-origin.
 app.get("/orjn-concierge.js", (_req: Request, res: Response) => {
