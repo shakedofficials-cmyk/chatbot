@@ -37,7 +37,11 @@ export async function upsertProductEmbeddingIfNeeded(
   productId: string,
   embeddingText: string
 ): Promise<void> {
-  if (!openai || !embeddingText.trim()) return;
+  if (!openai) {
+    console.warn("[embeddings] OpenAI client not initialised — OPENAI_API_KEY missing, skipping embedding");
+    return;
+  }
+  if (!embeddingText.trim()) return;
 
   const contentHash = hashText(embeddingText);
   const existing = await prisma.catalogEmbedding.findUnique({
@@ -54,7 +58,10 @@ export async function upsertProductEmbeddingIfNeeded(
   }
 
   const vector = await embedText(embeddingText);
-  if (!vector) return;
+  if (!vector) {
+    console.warn("[embeddings] embedText returned null for product", { productId });
+    return;
+  }
 
   await prisma.catalogEmbedding.upsert({
     where: {

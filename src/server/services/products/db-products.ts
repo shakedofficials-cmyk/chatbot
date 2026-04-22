@@ -312,7 +312,7 @@ async function lexicalSearch(
     SELECT
       p."id" AS "productId",
       (
-        ts_rank_cd(
+        COALESCE(ts_rank_cd(
           to_tsvector(
             'simple',
             concat_ws(
@@ -326,12 +326,12 @@ async function lexicalSearch(
             )
           ),
           websearch_to_tsquery('simple', ${lexicalQuery})
-        )
-        + CASE WHEN p."normalizedTitle" = ${normalizedQuery} THEN 2 ELSE 0 END
-        + CASE WHEN p."normalizedTitle" LIKE ${likeQuery} THEN 1 ELSE 0 END
-        + CASE WHEN COALESCE(p."modelKey", '') LIKE ${likeQuery} THEN 0.75 ELSE 0 END
-        + CASE WHEN COALESCE(p."silhouette", '') LIKE ${likeQuery} THEN 0.5 ELSE 0 END
-      )::float AS score
+        ), 0.0)
+        + CASE WHEN p."normalizedTitle" = ${normalizedQuery} THEN 2.0 ELSE 0.0 END
+        + CASE WHEN p."normalizedTitle" LIKE ${likeQuery} THEN 1.0 ELSE 0.0 END
+        + CASE WHEN COALESCE(p."modelKey", '') LIKE ${likeQuery} THEN 0.75 ELSE 0.0 END
+        + CASE WHEN COALESCE(p."silhouette", '') LIKE ${likeQuery} THEN 0.5 ELSE 0.0 END
+      ) AS score
     FROM "SyncProduct" p
     ${whereClause}
     ${hasWhereClauses ? Prisma.sql`AND` : Prisma.sql`WHERE`}
@@ -356,7 +356,9 @@ async function lexicalSearch(
     LIMIT ${limit}
   `);
 
-  return rows.filter((row) => row.score > 0);
+  // WHERE clause already guarantees every returned row has at least one match;
+  // no secondary score filter needed — it was silently dropping LIKE-only matches.
+  return rows.map((row) => ({ ...row, score: Number(row.score) }));
 }
 
 async function semanticSearch(
@@ -513,7 +515,7 @@ export async function hybridSearchProducts(
       take: 24,
     });
     lexicalCandidates = fallback.map((row) => ({ productId: row.id, score: 0.5 }));
-    console.warn("[search] fallback triggered", { query, normalizedQ, fallbackCount: fallback.length });
+    console.warn("[search] both lexical+semantic returned 0 — title-fallback used", { query, normalizedQ, fallbackCount: fallback.length });
   }
 
   const candidateIds = Array.from(
