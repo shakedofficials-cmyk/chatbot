@@ -410,6 +410,27 @@ async function upsertProduct(product: Product): Promise<void> {
   await upsertProductEmbeddingIfNeeded(product.id, embeddingText);
 }
 
+/**
+ * Try Storefront GraphQL first; if it throws (e.g. 401), fall back to public REST.
+ * The catch must wrap the iteration, not just the generator construction, because
+ * async generators don't execute until iterated.
+ */
+async function* streamStorefrontWithFallback(): AsyncGenerator<Product[]> {
+  try {
+    for await (const page of streamStorefrontProducts()) {
+      yield page;
+    }
+  } catch (err) {
+    console.warn(
+      "[sync] Storefront GraphQL failed, falling back to public REST:",
+      err instanceof Error ? err.message : String(err)
+    );
+    for await (const page of streamShopifyProducts()) {
+      yield page;
+    }
+  }
+}
+
 /** Full sync: stream all Shopify products page-by-page, upsert into Postgres, remove stale ones. */
 export async function syncShopifyProducts(): Promise<{
   total: number;
@@ -443,13 +464,8 @@ export async function syncShopifyProducts(): Promise<{
       }
 
       if (storefrontToken) {
-        try {
-          console.log("[sync] Streaming products via Shopify Storefront GraphQL...");
-          stream = streamStorefrontProducts();
-        } catch (storefrontErr) {
-          console.warn("[sync] Storefront GraphQL init failed, falling back to public REST:", storefrontErr instanceof Error ? storefrontErr.message : String(storefrontErr));
-          stream = streamShopifyProducts();
-        }
+        console.log("[sync] Streaming products via Shopify Storefront GraphQL...");
+        stream = streamStorefrontWithFallback();
       } else {
         console.log("[sync] No admin or storefront token. Using public REST catalog...");
         stream = streamShopifyProducts();
