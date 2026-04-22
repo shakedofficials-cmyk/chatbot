@@ -131,6 +131,7 @@ export interface QueryUnderstanding {
     size?: string;
     color?: string;
     category?: string;
+    tags?: string;
     styleTerms: string[];
     rawTerms: string[];
   };

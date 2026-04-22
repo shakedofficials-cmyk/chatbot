@@ -328,9 +328,10 @@ async function lexicalSearch(
           websearch_to_tsquery('simple', ${lexicalQuery})
         ), 0.0)
         + CASE WHEN p."normalizedTitle" = ${normalizedQuery} THEN 2.0 ELSE 0.0 END
-        + CASE WHEN p."normalizedTitle" LIKE ${likeQuery} THEN 1.0 ELSE 0.0 END
-        + CASE WHEN COALESCE(p."modelKey", '') LIKE ${likeQuery} THEN 0.75 ELSE 0.0 END
-        + CASE WHEN COALESCE(p."silhouette", '') LIKE ${likeQuery} THEN 0.5 ELSE 0.0 END
+        + CASE WHEN p."normalizedTitle" ILIKE ${likeQuery} THEN 1.0 ELSE 0.0 END
+        + CASE WHEN COALESCE(p."searchText", '') ILIKE ${likeQuery} THEN 0.8 ELSE 0.0 END
+        + CASE WHEN COALESCE(p."modelKey", '') ILIKE ${likeQuery} THEN 0.75 ELSE 0.0 END
+        + CASE WHEN COALESCE(p."silhouette", '') ILIKE ${likeQuery} THEN 0.5 ELSE 0.0 END
       ) AS score
     FROM "SyncProduct" p
     ${whereClause}
@@ -348,9 +349,10 @@ async function lexicalSearch(
           COALESCE(p."silhouette", '')
         )
       ) @@ websearch_to_tsquery('simple', ${lexicalQuery})
-      OR p."normalizedTitle" LIKE ${likeQuery}
-      OR COALESCE(p."modelKey", '') LIKE ${likeQuery}
-      OR COALESCE(p."silhouette", '') LIKE ${likeQuery}
+      OR p."normalizedTitle" ILIKE ${likeQuery}
+      OR COALESCE(p."searchText", '') ILIKE ${likeQuery}
+      OR COALESCE(p."modelKey", '') ILIKE ${likeQuery}
+      OR COALESCE(p."silhouette", '') ILIKE ${likeQuery}
     )
     ORDER BY score DESC, p."availableVariantCount" DESC, p."updatedAt" DESC
     LIMIT ${limit}

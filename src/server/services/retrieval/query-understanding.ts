@@ -104,11 +104,24 @@ export async function understandCatalogQuery(query: string): Promise<QueryUnders
   const size = extractSize(normalizedQuery);
   const priceFilters = extractPriceFilters(normalizedQuery);
   const silhouette = (await findCanonicalSynonym(normalizedQuery, "model")) ?? undefined;
+
+  // Gender — "men" / "women" / "male" / "female" are Shopify product tags, not model names.
+  // Detect them here so they become a tags filter instead of polluting the model field.
+  const genderMatch = normalizedQuery.match(/\b(men|women|male|female|mens|womens|men's|women's)\b/);
+  const genderTag = genderMatch
+    ? genderMatch[1].startsWith("men") ? "men" : "women"
+    : undefined;
+
   const model = deriveModel(normalizedQuery, [
     brand ?? "",
     category ?? "",
     color ?? "",
     silhouette ?? "",
+    genderTag ?? "",
+    "men",
+    "women",
+    "mens",
+    "womens",
     "size",
     "under",
     "below",
@@ -123,6 +136,7 @@ export async function understandCatalogQuery(query: string): Promise<QueryUnders
     silhouette,
     category,
     color,
+    tags: genderTag,
     size,
     minPrice: priceFilters.minPrice,
     maxPrice: priceFilters.maxPrice,
@@ -143,6 +157,7 @@ export async function understandCatalogQuery(query: string): Promise<QueryUnders
       size,
       color,
       category,
+      tags: genderTag,
       styleTerms,
       rawTerms: tokenize(normalizedQuery),
     },

@@ -1287,11 +1287,12 @@ class ORJNConciergeWidget {
     this.messages.scrollTop = this.messages.scrollHeight;
   }
 
-  private appendTextMessage(role: Role, text: string): void {
+  private appendTextMessage(role: Role, text: string): HTMLDivElement {
     const message = document.createElement("div");
     message.className = `orjn-msg ${role}`;
     message.textContent = text;
     this.messages.appendChild(message);
+    return message;
   }
 
   private renderProduct(product: Product): HTMLElement {
@@ -1442,7 +1443,7 @@ class ORJNConciergeWidget {
     cartAction?: CartAction,
     viewAllUrl?: string
   ): void {
-    this.appendTextMessage("assistant", text);
+    const msgEl = this.appendTextMessage("assistant", text);
 
     if (products && products.length > 0) {
       const stack = document.createElement("div");
@@ -1476,7 +1477,8 @@ class ORJNConciergeWidget {
       this.messages.appendChild(link);
     }
 
-    this.scrollToBottom();
+    // Scroll to the top of the new assistant message, not the bottom of the product cards
+    msgEl.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   private showTyping(): HTMLDivElement {
