@@ -1,5 +1,5 @@
 import { env } from "../../config.js";
-import { getStorefrontAccessToken, ensureManagedStorefrontAccessToken } from "./admin.js";
+import { getStorefrontAccessToken } from "./admin.js";
 
 const STOREFRONT_API_VERSION = "2024-01";
 
@@ -17,17 +17,16 @@ async function doStorefrontRequest<T>(
   query: string,
   variables: Record<string, unknown>,
   token: string | null
-): Promise<{ res: globalThis.Response; ok: boolean }> {
+): Promise<globalThis.Response> {
   const url = `https://${env.SHOPIFY_STORE_DOMAIN}/api/${STOREFRONT_API_VERSION}/graphql.json`;
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (token) headers["X-Shopify-Storefront-Access-Token"] = token;
 
-  const res = await fetch(url, {
+  return fetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify({ query, variables }),
   });
-  return { res, ok: res.ok };
 }
 
 export async function storefrontQuery<T>(
@@ -35,7 +34,7 @@ export async function storefrontQuery<T>(
   variables: Record<string, unknown> = {}
 ): Promise<T> {
   const operationName = getOperationName(query);
-  let storefrontToken = await getStorefrontAccessToken(env.SHOPIFY_STORE_DOMAIN);
+  const storefrontToken = await getStorefrontAccessToken(env.SHOPIFY_STORE_DOMAIN);
 
   console.info("[shopify] storefront request", {
     operationName,
@@ -46,16 +45,7 @@ export async function storefrontQuery<T>(
 
   let res: globalThis.Response;
   try {
-    const attempt = await doStorefrontRequest<T>(query, variables, storefrontToken);
-    res = attempt.res;
-
-    // On 401, try to refresh the token via client_credentials and retry once
-    if (res.status === 401) {
-      console.warn("[shopify] storefront 401 — attempting token refresh", { operationName });
-      storefrontToken = await ensureManagedStorefrontAccessToken(env.SHOPIFY_STORE_DOMAIN);
-      const retry = await doStorefrontRequest<T>(query, variables, storefrontToken);
-      res = retry.res;
-    }
+    res = await doStorefrontRequest<T>(query, variables, storefrontToken);
   } catch (error) {
     console.error("[shopify] storefront network error", {
       operationName,
@@ -67,6 +57,17 @@ export async function storefrontQuery<T>(
 
   if (!res.ok) {
     const responseBody = await res.text().catch(() => "");
+
+    if (res.status === 401) {
+      console.error("[shopify] storefront 401 - token rejected", {
+        operationName,
+        shopDomain: env.SHOPIFY_STORE_DOMAIN,
+        tokenPresent: Boolean(storefrontToken),
+        guidance:
+          "Use one valid SHOPIFY_STOREFRONT_ACCESS_TOKEN and do not auto-create additional public storefront tokens on request failure.",
+      });
+    }
+
     console.error("[shopify] storefront http error", {
       operationName,
       shopDomain: env.SHOPIFY_STORE_DOMAIN,
