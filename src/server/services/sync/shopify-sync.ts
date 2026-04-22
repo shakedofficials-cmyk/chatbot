@@ -461,11 +461,17 @@ export async function syncShopifyProducts(): Promise<{
       }
 
       if (storefrontToken) {
-        console.log("[sync] Fetching products via Shopify Storefront GraphQL...");
-        products = await fetchAllStorefrontProducts();
-        console.log(`[sync] Fetched ${products.length} products from Storefront GraphQL`);
+        try {
+          console.log("[sync] Fetching products via Shopify Storefront GraphQL...");
+          products = await fetchAllStorefrontProducts();
+          console.log(`[sync] Fetched ${products.length} products from Storefront GraphQL`);
+        } catch (storefrontErr) {
+          console.warn("[sync] Storefront GraphQL failed, falling back to public REST:", storefrontErr instanceof Error ? storefrontErr.message : String(storefrontErr));
+          products = await fetchAllShopifyProducts();
+          console.log(`[sync] Fetched ${products.length} products from public REST catalog (fallback)`);
+        }
       } else {
-        console.log("[sync] No admin or storefront token. Using public REST catalog (limited inventory data)...");
+        console.log("[sync] No admin or storefront token. Using public REST catalog...");
         products = await fetchAllShopifyProducts();
         console.log(`[sync] Fetched ${products.length} products from public REST catalog`);
       }
