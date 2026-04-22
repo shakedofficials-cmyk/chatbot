@@ -226,6 +226,16 @@ export async function getStorefrontAccessToken(shopDomain?: string): Promise<str
   return installed?.storefrontAccessToken ?? null;
 }
 
+export async function getInstalledStorefrontAccessToken(shopDomain?: string): Promise<string | null> {
+  const configuredShop = shopDomain ?? getConfiguredShopDomain();
+  if (!configuredShop) {
+    return null;
+  }
+
+  const installed = await getInstalledShop(configuredShop);
+  return installed?.storefrontAccessToken ?? null;
+}
+
 export async function refreshAllInstalledAdminTokens(): Promise<void> {
   const shops = await listInstalledShops();
   await Promise.all(

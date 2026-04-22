@@ -1519,8 +1519,6 @@ class ORJNConciergeWidget {
       typing.remove();
       const message = error instanceof Error ? error.message : "Something went wrong";
       this.showError(message);
-      this.appendTextMessage("assistant", "System is down for a second. Hit retry.");
-      this.scrollToBottom();
     } finally {
       this.setLoadingState(false);
     }

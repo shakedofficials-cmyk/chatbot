@@ -1,5 +1,5 @@
 import { env } from "../../config.js";
-import { getStorefrontAccessToken } from "./admin.js";
+import { getInstalledStorefrontAccessToken, getStorefrontAccessToken } from "./admin.js";
 
 const STOREFRONT_API_VERSION = "2024-01";
 
@@ -46,6 +46,17 @@ export async function storefrontQuery<T>(
   let res: globalThis.Response;
   try {
     res = await doStorefrontRequest<T>(query, variables, storefrontToken);
+
+    if (res.status === 401 && env.SHOPIFY_STOREFRONT_ACCESS_TOKEN) {
+      const installedToken = await getInstalledStorefrontAccessToken(env.SHOPIFY_STORE_DOMAIN);
+      if (installedToken && installedToken !== storefrontToken) {
+        console.warn("[shopify] storefront 401 - retrying with installed token", {
+          operationName,
+          shopDomain: env.SHOPIFY_STORE_DOMAIN,
+        });
+        res = await doStorefrontRequest<T>(query, variables, installedToken);
+      }
+    }
   } catch (error) {
     console.error("[shopify] storefront network error", {
       operationName,
