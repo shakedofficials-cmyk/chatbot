@@ -74,17 +74,16 @@ async function fetchAllAdminProducts(): Promise<Product[]> {
 
 /**
  * Fetch all products from Shopify's public REST API (/products.json).
- * This endpoint requires no authentication token.
- * Uses Link header cursor pagination (page-based is deprecated).
+ * Uses since_id pagination — the only cursor strategy that works for
+ * unauthenticated requests (Link header cursor requires admin auth).
  */
 async function fetchAllShopifyProducts(): Promise<Product[]> {
   const all: Product[] = [];
-  let url: string | null =
-    `https://${env.SHOPIFY_STORE_DOMAIN}/products.json?limit=250`;
+  let sinceId = 0;
 
-  while (url) {
-    const currentUrl: string = url;
-    const res: Response = await fetch(currentUrl);
+  while (true) {
+    const url = `https://${env.SHOPIFY_STORE_DOMAIN}/products.json?limit=250&since_id=${sinceId}`;
+    const res: Response = await fetch(url);
 
     if (!res.ok) {
       throw new Error(`Shopify REST API error: ${res.status} ${res.statusText}`);
@@ -97,9 +96,8 @@ async function fetchAllShopifyProducts(): Promise<Product[]> {
       all.push(mapRestProduct(raw));
     }
 
-    const linkHeader: string = res.headers.get("Link") ?? "";
-    const nextMatch: RegExpMatchArray | null = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
-    url = nextMatch ? nextMatch[1] : null;
+    sinceId = data.products[data.products.length - 1].id;
+    if (data.products.length < 250) break;
   }
 
   return all;
