@@ -1067,45 +1067,46 @@ class ORJNConciergeWidget {
       btn.classList.remove("adding");
       btn.disabled = false;
     } catch (error) {
-      try {
-        const liveVariantId = await this.findLiveVariantId(product, sizeLabel);
-        if (liveVariantId && liveVariantId !== variantId) {
-          await this.addToThemeCart(liveVariantId);
-          void this.logAnalytics("add_to_cart", {
+      const isVariantGone = (error as any)?.code === "VARIANT_NOT_FOUND";
+
+      if (!isVariantGone) {
+        try {
+          const liveVariantId = await this.findLiveVariantId(product, sizeLabel);
+          if (liveVariantId && liveVariantId !== variantId) {
+            await this.addToThemeCart(liveVariantId);
+            void this.logAnalytics("add_to_cart", {
+              productHandle: product.handle,
+              variantId: liveVariantId,
+              recoveredFromStaleVariant: true,
+            });
+            this.hideError();
+            this.showCartStatus(`${product.title} added to cart.`);
+            btn.classList.remove("adding");
+            btn.disabled = false;
+            return;
+          }
+        } catch (liveError) {
+          console.error("[orjn] live variant recovery failed", {
             productHandle: product.handle,
-            variantId: liveVariantId,
-            recoveredFromStaleVariant: true,
+            sizeLabel,
+            variantId,
+            message: liveError instanceof Error ? liveError.message : String(liveError),
           });
-          this.hideError();
-          this.showCartStatus(`${product.title} added to cart.`);
-          btn.classList.remove("adding");
-          btn.disabled = false;
-          return;
         }
-      } catch (liveError) {
-        console.error("[orjn] live variant recovery failed", {
-          productHandle: product.handle,
-          sizeLabel,
-          variantId,
-          message: liveError instanceof Error ? liveError.message : String(liveError),
-        });
       }
 
       btn.classList.remove("adding");
       btn.disabled = false;
-      const message = error instanceof Error ? error.message : "Unable to add that size right now.";
-      console.error("[orjn] add to cart failed", {
+      void this.logAnalytics("fallback_triggered", {
         productHandle: product.handle,
-        sizeLabel,
         variantId,
-        message,
+        sizeLabel,
+        reason: isVariantGone ? "variant_not_found" : "cart_add_failed",
       });
-      this.showError(message);
-      const original = btn.textContent ?? "";
-      btn.textContent = "ERR — RETRY";
-      setTimeout(() => {
-        btn.textContent = original;
-      }, 2500);
+      this.hideError();
+      this.showCartStatus("Taking you to the product page...");
+      const productUrl = this.buildProductVariantUrl(product);
+      setTimeout(() => { window.location.href = productUrl; }, 700);
     }
   }
 
@@ -1148,6 +1149,10 @@ class ORJNConciergeWidget {
         items: [{ id: numericVariantId, quantity: 1 }],
       }),
     });
+
+    if (response.status === 404) {
+      throw Object.assign(new Error("Variant not found"), { code: "VARIANT_NOT_FOUND" });
+    }
 
     if (!response.ok) {
       const payload = (await response.json().catch(() => ({ description: "Failed to add to cart" }))) as {

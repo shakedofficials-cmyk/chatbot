@@ -189,12 +189,7 @@ app.post("/api/sync", async (req: Request, res: Response) => {
   }
 });
 
-app.get("/api/sync/status", async (req: Request, res: Response) => {
-  if (!isSyncAuthorized(req)) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-
+app.get("/api/sync/status", async (_req: Request, res: Response) => {
   try {
     const health = await getSyncHealth();
     res.json({
@@ -214,6 +209,45 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: "Something went wrong. Please try again." });
 });
 
+function scheduleDaily3amSync() {
+  const now = new Date();
+  const next3am = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() + (now.getUTCHours() >= 3 ? 1 : 0),
+    3, 0, 0, 0
+  ));
+  const msUntil3am = next3am.getTime() - now.getTime();
+
+  const fire3amSync = () => {
+    console.log("[sync] daily 3AM sync starting");
+    runCatalogSync("daily-3am").catch(() => {});
+  };
+
+  setTimeout(() => {
+    fire3amSync();
+    setInterval(fire3amSync, 24 * 60 * 60 * 1000);
+  }, msUntil3am);
+
+  console.log(`[sync] Daily 3AM sync scheduled in ${Math.round(msUntil3am / 60000)} minutes`);
+}
+
+async function runStartupSyncIfNeeded() {
+  if (!hasLiveShopifyStore) return;
+  const count = await prisma.syncProduct.count();
+  if (count === 0) {
+    console.log("[sync] DB empty on startup — running immediate blocking sync...");
+    try {
+      const result = await runCatalogSync("startup-empty-db");
+      console.log("[sync] Startup sync complete:", result);
+    } catch (err) {
+      console.error("[sync] Startup sync failed:", err);
+    }
+  } else {
+    console.log(`[sync] DB has ${count} products on startup — skipping blocking sync`);
+  }
+}
+
 // Start
 const PORT = parseInt(process.env.PORT ?? "3001", 10);
 const server = app.listen(PORT, "0.0.0.0", () => {
@@ -221,6 +255,9 @@ const server = app.listen(PORT, "0.0.0.0", () => {
 
   // Non-blocking initial sync + periodic re-sync
   if (hasLiveShopifyStore) {
+    if (!env.SHOPIFY_ADMIN_ACCESS_TOKEN) {
+      console.warn("[sync] WARNING: SHOPIFY_ADMIN_ACCESS_TOKEN is not set. Inventory availability will be INACCURATE. Set this env var in Railway for accurate product data.");
+    }
     // Warm the Storefront token on boot (client_credentials flow if creds present)
     ensureManagedStorefrontAccessToken(env.SHOPIFY_STORE_DOMAIN)
       .then((t) => console.log("[shopify] Storefront token ready:", Boolean(t)))
@@ -230,9 +267,12 @@ const server = app.listen(PORT, "0.0.0.0", () => {
       console.error("[shopify] startup admin token refresh failed:", error)
     );
 
-    runCatalogSync("initial").catch(() => {
-      // logging handled inside runCatalogSync
+    // If DB is empty, block until sync completes; then fire initial sync (in-flight dedup avoids double work).
+    runStartupSyncIfNeeded().finally(() => {
+      runCatalogSync("initial").catch(() => {});
     });
+
+    scheduleDaily3amSync();
 
     const intervalMs = env.SYNC_INTERVAL_MINUTES * 60 * 1000;
     setInterval(() => {
@@ -254,12 +294,11 @@ const server = app.listen(PORT, "0.0.0.0", () => {
       );
     }, 23 * 60 * 60 * 1000);
 
-    const refreshIntervalMs = 24 * 60 * 60 * 1000;
     setInterval(() => {
       refreshAllInstalledAdminTokens().catch((error) =>
         console.error("[shopify] periodic admin token refresh failed:", error)
       );
-    }, refreshIntervalMs);
+    }, 24 * 60 * 60 * 1000);
   }
 });
 
