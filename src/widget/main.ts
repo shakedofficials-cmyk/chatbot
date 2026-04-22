@@ -868,6 +868,8 @@ class ORJNConciergeWidget {
 
   private cartId: string | null = null;
   private lastMessage = "";
+  private lastSubmittedText = "";
+  private lastSubmittedAt = 0;
   private isLoading = false;
   private hasLoggedOpen = false;
 
@@ -1227,6 +1229,7 @@ class ORJNConciergeWidget {
   private setLoadingState(isLoading: boolean): void {
     this.isLoading = isLoading;
     this.sendButton.disabled = isLoading;
+    this.input.disabled = isLoading;
   }
 
   private hideEmptyState(): void {
@@ -1463,6 +1466,14 @@ class ORJNConciergeWidget {
     const text = this.input.value.trim();
     if (!text || this.isLoading) return;
 
+    const now = Date.now();
+    if (text === this.lastSubmittedText && now - this.lastSubmittedAt < 1000) {
+      return;
+    }
+
+    this.lastSubmittedText = text;
+    this.lastSubmittedAt = now;
+    this.setLoadingState(true);
     this.lastMessage = text;
     this.input.value = "";
     this.autoResizeInput();
@@ -1471,7 +1482,6 @@ class ORJNConciergeWidget {
     this.appendTextMessage("user", text);
 
     const typing = this.showTyping();
-    this.setLoadingState(true);
 
     try {
       const body: Record<string, string> = {
@@ -1509,6 +1519,8 @@ class ORJNConciergeWidget {
       typing.remove();
       const message = error instanceof Error ? error.message : "Something went wrong";
       this.showError(message);
+      this.appendTextMessage("assistant", "System is down for a second. Hit retry.");
+      this.scrollToBottom();
     } finally {
       this.setLoadingState(false);
     }
