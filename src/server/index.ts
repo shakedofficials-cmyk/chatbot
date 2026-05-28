@@ -28,6 +28,28 @@ app.set("trust proxy", 1);
 const widgetDistDir = join(__dirname, "../widget");
 const widgetBundlePath = join(widgetDistDir, "orjn-concierge.js");
 let syncInFlight: Promise<{ total: number; upserted: number; deleted: number }> | null = null;
+const configuredCorsOrigins = new Set(
+  env.CORS_ORIGIN.split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+);
+const storeCorsOrigins = new Set([
+  `https://${env.SHOPIFY_STORE_DOMAIN}`,
+  "https://orjnstore.com",
+  "https://www.orjnstore.com",
+]);
+
+function isAllowedCorsOrigin(origin: string | undefined): boolean {
+  if (!origin || env.CORS_ORIGIN === "*") return true;
+  if (configuredCorsOrigins.has(origin) || storeCorsOrigins.has(origin)) return true;
+
+  try {
+    const { hostname, protocol } = new URL(origin);
+    return protocol === "https:" && hostname.endsWith(".myshopify.com");
+  } catch {
+    return false;
+  }
+}
 
 function isSyncAuthorized(req: Request): boolean {
   if (!env.SYNC_SECRET) {
@@ -102,7 +124,9 @@ app.use(
 app.use(compression());
 app.use(
   cors({
-    origin: env.CORS_ORIGIN === "*" ? true : env.CORS_ORIGIN.split(",").map((origin) => origin.trim()),
+    origin: (origin, callback) => {
+      callback(null, isAllowedCorsOrigin(origin) ? origin || true : false);
+    },
     credentials: true,
   })
 );
