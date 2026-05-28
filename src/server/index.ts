@@ -18,7 +18,6 @@ import { summarizeSyncHealth } from "./services/sync/monitor.js";
 import {
   refreshAllInstalledAdminTokens,
   ensureManagedStorefrontAccessToken,
-  getStorefrontAccessToken,
 } from "./services/shopify/admin.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -31,7 +30,10 @@ const widgetBundlePath = join(widgetDistDir, "orjn-concierge.js");
 let syncInFlight: Promise<{ total: number; upserted: number; deleted: number }> | null = null;
 
 function isSyncAuthorized(req: Request): boolean {
-  return !env.SYNC_SECRET || req.headers["x-sync-secret"] === env.SYNC_SECRET;
+  if (!env.SYNC_SECRET) {
+    return true;
+  }
+  return req.headers["x-sync-secret"] === env.SYNC_SECRET;
 }
 
 async function getSyncHealth() {
@@ -100,7 +102,7 @@ app.use(
 app.use(compression());
 app.use(
   cors({
-    origin: env.CORS_ORIGIN === "*" ? true : env.CORS_ORIGIN.split(","),
+    origin: env.CORS_ORIGIN === "*" ? true : env.CORS_ORIGIN.split(",").map((origin) => origin.trim()),
     credentials: true,
   })
 );
@@ -150,14 +152,11 @@ app.use("/api/retrieval", retrievalRoutes);
 app.use("/auth", authRoutes);
 app.use("/api/webhooks", webhookRoutes);
 
-// Widget config — exposes the Storefront token to the client-side widget.
-// Storefront tokens are designed to be public (Shopify explicitly states this).
+// Widget config — keeps API-facing Shopify credentials server-side.
 app.get("/api/widget-config", async (_req: Request, res: Response) => {
-  const storefrontToken = await getStorefrontAccessToken(env.SHOPIFY_STORE_DOMAIN);
   res.json({
     shopDomain: env.SHOPIFY_STORE_DOMAIN,
-    storefrontToken,
-    apiVersion: "2024-01",
+    apiVersion: "2026-04",
   });
 });
 
@@ -189,7 +188,28 @@ app.post("/api/sync", async (req: Request, res: Response) => {
   }
 });
 
-app.get("/api/sync/status", async (_req: Request, res: Response) => {
+app.get("/api/sync", async (req: Request, res: Response) => {
+  if (!isSyncAuthorized(req)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  runCatalogSync("manual-browser").catch(() => {
+    // logging handled inside runCatalogSync
+  });
+
+  res.json({
+    status: "started",
+    message: "Catalog sync started. Check /api/sync/status for progress.",
+  });
+});
+
+app.get("/api/sync/status", async (req: Request, res: Response) => {
+  if (env.SYNC_SECRET && !isSyncAuthorized(req)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
   try {
     const health = await getSyncHealth();
     res.json({
@@ -203,7 +223,6 @@ app.get("/api/sync/status", async (_req: Request, res: Response) => {
 });
 
 // Global error handler
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   console.error("Unhandled error:", err);
   res.status(500).json({ error: "Something went wrong. Please try again." });
@@ -274,12 +293,14 @@ const server = app.listen(PORT, "0.0.0.0", () => {
 
     scheduleDaily3amSync();
 
-    const intervalMs = env.SYNC_INTERVAL_MINUTES * 60 * 1000;
-    setInterval(() => {
-      runCatalogSync("periodic").catch(() => {
-        // logging handled inside runCatalogSync
-      });
-    }, intervalMs);
+    if (env.SYNC_INTERVAL_MINUTES > 0) {
+      const intervalMs = env.SYNC_INTERVAL_MINUTES * 60 * 1000;
+      setInterval(() => {
+        runCatalogSync("periodic").catch(() => {
+          // logging handled inside runCatalogSync
+        });
+      }, intervalMs);
+    }
 
     setInterval(() => {
       ensureCatalogFreshness().catch((error) =>

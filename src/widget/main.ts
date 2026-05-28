@@ -1034,7 +1034,12 @@ class ORJNConciergeWidget {
     const result: Array<{ label: string; variantId: string; available: boolean }> = [];
     for (const variant of product.variants) {
       const sizeOpt = variant.selectedOptions.find((o) => o.name.toLowerCase() === "size");
-      const label = sizeOpt?.value ?? variant.title;
+      const meaningfulOptions = variant.selectedOptions.filter(
+        (option) => option.value && option.value.toLowerCase() !== "default title"
+      );
+      const label = meaningfulOptions.length > 1
+        ? meaningfulOptions.map((option) => option.value).join(" / ")
+        : sizeOpt?.value ?? variant.title;
       if (seen.has(label)) {
         // Keep the first available if duplicate
         const existing = result.find((r) => r.label === label);
@@ -1061,6 +1066,7 @@ class ORJNConciergeWidget {
 
     try {
       await this.addToThemeCart(variantId);
+      await this.syncBackendCart(product, variantId, sizeLabel);
       void this.logAnalytics("add_to_cart", { productHandle: product.handle, variantId });
       this.refreshThemeCartCount();
       this.hideError();
@@ -1072,9 +1078,10 @@ class ORJNConciergeWidget {
 
       if (!isVariantGone) {
         try {
-          const liveVariantId = await this.findLiveVariantId(product, sizeLabel);
+          const liveVariantId = await this.findLiveVariantId(product, variantId, sizeLabel);
           if (liveVariantId && liveVariantId !== variantId) {
             await this.addToThemeCart(liveVariantId);
+            await this.syncBackendCart(product, liveVariantId, sizeLabel);
             void this.logAnalytics("add_to_cart", {
               productHandle: product.handle,
               variantId: liveVariantId,
@@ -1165,6 +1172,36 @@ class ORJNConciergeWidget {
     }
   }
 
+  private async syncBackendCart(
+    product: Product,
+    variantId: string,
+    sizeLabel: string
+  ): Promise<void> {
+    try {
+      const variant = product.variants.find((entry) => entry.id === variantId);
+      const response = await fetch(`${this.config.apiBaseUrl}/api/cart/add`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          variantId,
+          quantity: 1,
+          cartId: this.cartId ?? undefined,
+          variantTitle: variant?.title ?? sizeLabel,
+          productTitle: product.title,
+          productHandle: product.handle,
+          price: variant?.price,
+        }),
+      });
+
+      if (!response.ok) return;
+
+      const payload = (await response.json()) as { cartId?: string };
+      if (payload.cartId) this.cartId = payload.cartId;
+    } catch {
+      // The theme cart is the visible cart. Backend cart sync is best-effort.
+    }
+  }
+
   private refreshThemeCartCount(): void {
     // Re-render all cart/header sections via Shopify's Section Rendering API.
     // This is the only approach that updates both the count badge AND the
@@ -1196,7 +1233,11 @@ class ORJNConciergeWidget {
     document.dispatchEvent(new CustomEvent("cart:updated", { bubbles: true }));
   }
 
-  private async findLiveVariantId(product: Product, sizeLabel: string): Promise<string | null> {
+  private async findLiveVariantId(
+    product: Product,
+    variantId: string,
+    fallbackLabel: string
+  ): Promise<string | null> {
     const response = await fetch(this.getStoreProductJsonUrl(product.handle), {
       headers: { Accept: "application/json" },
     });
@@ -1205,14 +1246,26 @@ class ORJNConciergeWidget {
     }
 
     const payload = (await response.json()) as ShopifyThemeProduct;
-    const sizeOptionIndex = (payload.options ?? []).findIndex((option) => option.toLowerCase() === "size");
-    if (sizeOptionIndex === -1) {
+    const targetVariant = product.variants.find((variant) => variant.id === variantId);
+    const optionNames = payload.options ?? [];
+    if (optionNames.length === 0) {
       return null;
     }
 
     const matchingVariant = (payload.variants ?? []).find((variant) => {
       const options = [variant.option1, variant.option2, variant.option3];
-      return variant.available && options[sizeOptionIndex] === sizeLabel;
+      if (!variant.available) return false;
+
+      if (targetVariant) {
+        return targetVariant.selectedOptions.every((selected) => {
+          const optionIndex = optionNames.findIndex(
+            (optionName) => optionName.toLowerCase() === selected.name.toLowerCase()
+          );
+          return optionIndex >= 0 && options[optionIndex] === selected.value;
+        });
+      }
+
+      return options.includes(fallbackLabel);
     });
 
     return matchingVariant ? `gid://shopify/ProductVariant/${matchingVariant.id}` : null;
@@ -1557,7 +1610,10 @@ class ORJNConciergeWidget {
       );
     } catch (error) {
       typing.remove();
-      const message = error instanceof Error ? error.message : "Something went wrong";
+      const rawMessage = error instanceof Error ? error.message : "Something went wrong";
+      const message = rawMessage === "Failed to fetch"
+        ? "Could not reach ORJN Concierge. Check the app embed API URL, Railway domain, and CORS_ORIGIN."
+        : rawMessage;
       this.showError(message);
     } finally {
       this.setLoadingState(false);

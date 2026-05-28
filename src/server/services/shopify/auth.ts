@@ -1,5 +1,10 @@
 import crypto from "node:crypto";
-import { env, hasShopifyOAuthConfig } from "../../config.js";
+import {
+  env,
+  hasShopifyOAuthConfig,
+  shopifyClientId,
+  shopifyClientSecret,
+} from "../../config.js";
 import { assertValidShopDomain } from "./installations.js";
 
 const STATE_MAX_AGE_MS = 15 * 60 * 1000;
@@ -21,17 +26,17 @@ function getAppBaseUrl(): string {
 }
 
 function getOAuthSecret(): string {
-  if (!env.SHOPIFY_API_SECRET) {
-    throw new Error("SHOPIFY_API_SECRET is required for Shopify OAuth.");
+  if (!shopifyClientSecret) {
+    throw new Error("SHOPIFY_CLIENT_SECRET or SHOPIFY_API_SECRET is required for Shopify OAuth.");
   }
-  return env.SHOPIFY_API_SECRET;
+  return shopifyClientSecret;
 }
 
 function getOAuthClientId(): string {
-  if (!env.SHOPIFY_API_KEY) {
-    throw new Error("SHOPIFY_API_KEY is required for Shopify OAuth.");
+  if (!shopifyClientId) {
+    throw new Error("SHOPIFY_CLIENT_ID or SHOPIFY_API_KEY is required for Shopify OAuth.");
   }
-  return env.SHOPIFY_API_KEY;
+  return shopifyClientId;
 }
 
 function sign(value: string): string {
@@ -46,7 +51,7 @@ function secureCompare(a: string, b: string): boolean {
 export function ensureShopifyOAuthConfig(): void {
   if (!hasShopifyOAuthConfig) {
     throw new Error(
-      "Shopify OAuth config is incomplete. Set SHOPIFY_API_KEY, SHOPIFY_API_SECRET, and SHOPIFY_APP_URL."
+      "Shopify OAuth config is incomplete. Set SHOPIFY_CLIENT_ID, SHOPIFY_CLIENT_SECRET, and SHOPIFY_APP_URL."
     );
   }
 }

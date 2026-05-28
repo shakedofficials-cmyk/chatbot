@@ -434,6 +434,22 @@ async function* streamStorefrontWithFallback(): AsyncGenerator<Product[]> {
   }
 }
 
+async function* streamAdminWithFallback(): AsyncGenerator<Product[]> {
+  try {
+    for await (const page of streamAdminProducts()) {
+      yield page;
+    }
+  } catch (err) {
+    console.warn(
+      "[sync] Admin REST failed, falling back to public REST:",
+      err instanceof Error ? err.message : String(err)
+    );
+    for await (const page of streamShopifyProducts()) {
+      yield page;
+    }
+  }
+}
+
 /** Full sync: stream all Shopify products page-by-page, upsert into Postgres, remove stale ones. */
 export async function syncShopifyProducts(): Promise<{
   total: number;
@@ -455,7 +471,7 @@ export async function syncShopifyProducts(): Promise<{
     let stream: AsyncGenerator<Product[]>;
     if (hasShopifyClientCredentials && hasLiveShopifyStore) {
       console.log("[sync] Streaming products via Shopify Admin REST API (client_credentials)...");
-      stream = streamAdminProducts();
+      stream = streamAdminWithFallback();
     } else {
       let storefrontToken: string | null = null;
       try {

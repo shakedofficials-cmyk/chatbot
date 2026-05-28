@@ -28,6 +28,17 @@ interface StorefrontTokenCreateResponse {
 
 let clientCredentialsCache: TokenCache | null = null;
 
+function getUsableConfiguredStorefrontToken(): string | null {
+  const token = env.SHOPIFY_STOREFRONT_ACCESS_TOKEN.trim();
+  if (!token) return null;
+
+  if (shopifyClientSecret && token === shopifyClientSecret) {
+    return null;
+  }
+
+  return token;
+}
+
 async function fetchClientCredentialsAdminToken(shopDomain: string): Promise<string> {
   const url = `https://${shopDomain}/admin/oauth/access_token`;
   const res = await fetch(url, {
@@ -151,8 +162,9 @@ export async function adminRestJson<T>(
 }
 
 export async function ensureManagedStorefrontAccessToken(shopDomain?: string): Promise<string | null> {
-  if (env.SHOPIFY_STOREFRONT_ACCESS_TOKEN) {
-    return env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
+  const configuredToken = getUsableConfiguredStorefrontToken();
+  if (configuredToken) {
+    return configuredToken;
   }
 
   const configuredShop = shopDomain ?? getConfiguredShopDomain();
@@ -213,8 +225,9 @@ export async function ensureManagedStorefrontAccessToken(shopDomain?: string): P
 }
 
 export async function getStorefrontAccessToken(shopDomain?: string): Promise<string | null> {
-  if (env.SHOPIFY_STOREFRONT_ACCESS_TOKEN) {
-    return env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
+  const configuredToken = getUsableConfiguredStorefrontToken();
+  if (configuredToken) {
+    return configuredToken;
   }
 
   const configuredShop = shopDomain ?? getConfiguredShopDomain();

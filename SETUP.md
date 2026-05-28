@@ -64,18 +64,19 @@ postgresql://user:password@host:5432/database_name
 2. Copy `.env.example` to `.env` and fill in your values:
    ```
    SHOPIFY_STORE_DOMAIN=your-store.myshopify.com
-   SHOPIFY_API_KEY=your-shopify-app-api-key
-   SHOPIFY_API_SECRET=your-shopify-app-api-secret
+   SHOPIFY_CLIENT_ID=your-shopify-app-client-id
+   SHOPIFY_CLIENT_SECRET=your-shopify-app-client-secret
    SHOPIFY_APP_URL=https://your-backend-url.com
    SHOPIFY_AUTH_SCOPES=read_products,read_inventory,unauthenticated_read_product_listings,unauthenticated_read_product_inventory,unauthenticated_read_checkouts,unauthenticated_write_checkouts
-   SHOPIFY_STOREFRONT_ACCESS_TOKEN=optional-fallback-token
+   SHOPIFY_STOREFRONT_ACCESS_TOKEN=your-storefront-api-token
+   SHOPIFY_WEBHOOK_SECRET=your-webhook-secret
    OPENAI_API_KEY=sk-...
    OPENAI_EMBEDDING_MODEL=text-embedding-3-small
    DATABASE_URL=postgresql://...
    PORT=3001
    NODE_ENV=production
    CORS_ORIGIN=https://your-store.myshopify.com
-   SYNC_INTERVAL_MINUTES=15
+   SYNC_INTERVAL_MINUTES=0
    SYNC_SECRET=your-sync-secret
    RETRIEVAL_DEBUG_SECRET=your-debug-secret
    ```
@@ -169,11 +170,12 @@ These show up automatically in product cards and comparisons.
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `SHOPIFY_STORE_DOMAIN` | Yes | Your `.myshopify.com` domain |
-| `SHOPIFY_API_KEY` | Yes for OAuth install flow | Shopify app API key |
-| `SHOPIFY_API_SECRET` | Yes for OAuth install flow | Shopify app API secret |
+| `SHOPIFY_CLIENT_ID` | Yes | Shopify app client ID |
+| `SHOPIFY_CLIENT_SECRET` | Yes | Shopify app client secret |
 | `SHOPIFY_APP_URL` | Yes for OAuth install flow | Public backend base URL used for OAuth redirects |
 | `SHOPIFY_AUTH_SCOPES` | No | Comma-separated scopes used by `/auth/start` |
-| `SHOPIFY_STOREFRONT_ACCESS_TOKEN` | No | Optional fallback Storefront token; installed app tokens are preferred |
+| `SHOPIFY_STOREFRONT_ACCESS_TOKEN` | Yes | Storefront API token. Do not reuse the Shopify client secret here |
+| `SHOPIFY_WEBHOOK_SECRET` | Yes | Secret used to verify Shopify product webhooks |
 | `SHOPIFY_STOREFRONT_TOKEN_TITLE` | No | Title used when creating a managed Storefront access token |
 | `OPENAI_API_KEY` | Yes | OpenAI API key |
 | `OPENAI_EMBEDDING_MODEL` | No | Embedding model for semantic retrieval; defaults to `text-embedding-3-small` |
@@ -181,8 +183,8 @@ These show up automatically in product cards and comparisons.
 | `PORT` | No | Server port (default: 3001) |
 | `NODE_ENV` | No | `development` or `production` |
 | `CORS_ORIGIN` | No | Allowed origins — set to your store domain in production |
-| `SYNC_INTERVAL_MINUTES` | No | Catalog resync interval in minutes; defaults to `15` |
-| `SYNC_SECRET` | No | Secret for `POST /api/sync` manual sync requests |
+| `SYNC_INTERVAL_MINUTES` | No | Optional extra catalog resync interval in minutes. `0` disables interval sync |
+| `SYNC_SECRET` | Yes | Secret for `POST /api/sync` and production sync status requests |
 | `RETRIEVAL_DEBUG_SECRET` | No | Secret for `POST /api/retrieval/debug`; falls back to `SYNC_SECRET` if omitted |
 | `VITE_API_URL` | No | API URL for local dev widget |
 
@@ -193,12 +195,13 @@ These show up automatically in product cards and comparisons.
 The live chatbot now answers product questions from the synced Postgres catalog, not from direct Shopify product fetches on every chat turn.
 
 - Shopify remains the source of truth
-- the app syncs products into Postgres on startup and every `SYNC_INTERVAL_MINUTES`
+- the app syncs products into Postgres on startup, once daily at 3AM UTC, and whenever the freshness watchdog marks the catalog stale
+- optional extra interval sync can be enabled with `SYNC_INTERVAL_MINUTES`
 - once the Shopify app is installed through `/auth/start`, sync prefers Storefront GraphQL with the managed Storefront token
 - if no managed token exists yet, sync falls back to the public catalog until OAuth is completed
 - lexical retrieval runs from normalized catalog fields in Postgres
 - semantic retrieval uses embeddings stored in the catalog index
-- size and availability answers are grounded in synced variant data
+- size, type/use-case, gender, color, price, and availability answers are grounded in synced product/variant data
 
 This means production deploys must apply Prisma migrations before serving traffic.
 
@@ -253,7 +256,7 @@ Backend runs on `http://localhost:3001`, widget on `http://localhost:5173`.
 
 - **Widget doesn't appear**: Check that the app embed is enabled in theme customizer
 - **"Network error"**: Check that `CORS_ORIGIN` includes your store domain
-- **OAuth install fails**: Verify `SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET`, `SHOPIFY_APP_URL`, and the redirect URL configured in Shopify
+- **OAuth install fails**: Verify `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`, `SHOPIFY_APP_URL`, and the redirect URL configured in Shopify
 - **No products returned**: Verify the app was installed through `/auth/start` and the Shopify scopes include both Admin and Storefront scopes
 - **Hybrid retrieval errors after deploy**: Make sure the latest Prisma migration ran successfully before the server starts
 - **Unexpected ranking results**: Use `POST /api/retrieval/debug` with your debug secret to inspect lexical and semantic candidates

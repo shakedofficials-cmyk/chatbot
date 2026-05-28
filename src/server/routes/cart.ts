@@ -6,6 +6,7 @@ const router = Router();
 
 const addSchema = z.object({
   variantId: z.string().min(1),
+  quantity: z.number().int().min(1).max(10).optional(),
   cartId: z.string().optional(),
   variantTitle: z.string().optional(),
   productTitle: z.string().optional(),
@@ -22,6 +23,7 @@ router.post("/add", async (req: Request, res: Response) => {
 
   const result = await addVariantToCart({
     variantId: parsed.data.variantId,
+    quantity: parsed.data.quantity,
     cartId: parsed.data.cartId,
     variantTitle: parsed.data.variantTitle,
     productTitle: parsed.data.productTitle,

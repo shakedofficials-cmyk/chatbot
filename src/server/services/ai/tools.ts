@@ -17,6 +17,8 @@ export const AI_TOOLS = [
         min_price: { type: "number", description: "Minimum price filter" },
         max_price: { type: "number", description: "Maximum price filter" },
         category: { type: "string", description: "Category or type such as 'sneakers' or 'runner'" },
+        type: { type: "string", description: "Use-case/type filter such as 'lifestyle', 'basketball', 'running', or 'training'" },
+        gender: { type: "string", description: "Audience filter: 'men' or 'women'" },
         color: { type: "string", description: "Color filter, e.g. 'black', 'white'" },
         product_type: { type: "string", description: "Normalized product type filter" },
         in_stock: { type: "boolean", description: "Only return in-stock products" },

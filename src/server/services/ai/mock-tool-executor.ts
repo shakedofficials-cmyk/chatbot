@@ -1,4 +1,4 @@
-import type { Product, ProductComparison, Cart, CartLine } from "../../../shared/types.js";
+import type { Product, ProductComparison, Cart } from "../../../shared/types.js";
 import { MOCK_PRODUCTS } from "../shopify/mock-data.js";
 import { answerPolicyQuestion } from "../knowledge/index.js";
 import { logEvent } from "../analytics/index.js";

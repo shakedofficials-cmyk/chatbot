@@ -106,6 +106,7 @@ export interface SearchFilters {
   color?: string;
   size?: string;
   productType?: string;
+  gender?: string;
   inStock?: boolean;
   tags?: string;
 }
@@ -131,6 +132,7 @@ export interface QueryUnderstanding {
     size?: string;
     color?: string;
     category?: string;
+    gender?: string;
     tags?: string;
     styleTerms: string[];
     rawTerms: string[];

@@ -22,8 +22,12 @@ import type { Product, ProductVariant, ProductImage } from "../../shared/types.j
 
 const router = Router();
 
-function verifyWebhookHmac(rawBody: Buffer, hmacHeader: string): boolean {
-  if (!env.SHOPIFY_WEBHOOK_SECRET) return true; // allow-all when secret not configured
+function verifyWebhookHmac(rawBody: Buffer, hmacHeader: string | undefined): boolean {
+  if (!env.SHOPIFY_WEBHOOK_SECRET) {
+    return true;
+  }
+  if (!hmacHeader) return false;
+
   const computed = crypto
     .createHmac("sha256", env.SHOPIFY_WEBHOOK_SECRET)
     .update(rawBody)
@@ -235,7 +239,7 @@ router.post(
     // rawBody is attached by the express.raw() middleware mounted in index.ts
     const rawBody: Buffer = (req as any).rawBody ?? Buffer.from(JSON.stringify(req.body));
 
-    if (hmacHeader && !verifyWebhookHmac(rawBody, hmacHeader)) {
+    if (!verifyWebhookHmac(rawBody, hmacHeader)) {
       res.status(401).json({ error: "HMAC verification failed" });
       return;
     }

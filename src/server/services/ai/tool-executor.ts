@@ -1,6 +1,7 @@
 import type { Cart, Product, ProductComparison, SearchFilters, ShopperPreferences } from "../../../shared/types.js";
 import * as shopify from "../shopify/storefront.js";
 import * as dbProducts from "../products/db-products.js";
+import { hasLiveShopifyStore } from "../../config.js";
 import {
   localCartCreate,
   localCartAddLines,
@@ -83,10 +84,11 @@ async function handleSearchProducts(
     model: input.model,
     minPrice: input.min_price,
     maxPrice: input.max_price,
-    category: input.category,
+    category: input.type ?? input.category,
     color: input.color,
     size: input.size,
     productType: input.product_type,
+    gender: input.gender,
     inStock: input.in_stock,
     tags: input.tags,
   };
@@ -502,7 +504,25 @@ async function handleCompareProducts(
   };
 }
 
+function isLocalCartId(cartId: string | undefined): boolean {
+  return Boolean(cartId?.startsWith("cart_"));
+}
+
 async function handleCartCreate(): Promise<ToolResult> {
+  if (hasLiveShopifyStore) {
+    try {
+      const cart = await shopify.cartCreate();
+      return {
+        content: JSON.stringify({ cartId: cart.id, checkoutUrl: cart.checkoutUrl }),
+        cart,
+      };
+    } catch (error) {
+      console.warn("[cart] Shopify cart_create failed; using local cart fallback", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   const cart = localCartCreate();
   return {
     content: JSON.stringify({ cartId: cart.id, checkoutUrl: cart.checkoutUrl }),
@@ -511,7 +531,26 @@ async function handleCartCreate(): Promise<ToolResult> {
 }
 
 async function handleCartAddLines(input: Record<string, any>): Promise<ToolResult> {
-  const cart = localCartAddLines(input.cart_id, input.variant_id, input.quantity ?? 1);
+  if (hasLiveShopifyStore && !isLocalCartId(input.cart_id)) {
+    try {
+      const cart = input.cart_id
+        ? await shopify.cartAddLines(input.cart_id, input.variant_id, input.quantity ?? 1)
+        : await shopify.cartCreateWithLine(input.variant_id, input.quantity ?? 1);
+      return {
+        content: `Added to cart. Cart now has ${cart.totalQuantity} item(s). Checkout: ${cart.checkoutUrl}`,
+        cart,
+      };
+    } catch (error) {
+      console.warn("[cart] Shopify cart_add_lines failed; using local cart fallback", {
+        cartId: input.cart_id,
+        variantId: input.variant_id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const cartId = input.cart_id ?? localCartCreate().id;
+  const cart = localCartAddLines(cartId, input.variant_id, input.quantity ?? 1);
   return {
     content: `Added to cart. Cart now has ${cart.totalQuantity} item(s). Checkout: ${cart.checkoutUrl}`,
     cart,
@@ -519,6 +558,23 @@ async function handleCartAddLines(input: Record<string, any>): Promise<ToolResul
 }
 
 async function handleCartUpdateLines(input: Record<string, any>): Promise<ToolResult> {
+  if (hasLiveShopifyStore && !isLocalCartId(input.cart_id)) {
+    try {
+      const cart = await shopify.cartUpdateLines(input.cart_id, input.line_id, input.quantity);
+      return {
+        content: `Cart updated. ${cart.totalQuantity} item(s).`,
+        cart,
+      };
+    } catch (error) {
+      console.warn("[cart] Shopify cart_update_lines failed", {
+        cartId: input.cart_id,
+        lineId: input.line_id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { content: "Cart update failed. Ask the customer to use the cart page." };
+    }
+  }
+
   const cart = localCartUpdateLines(input.cart_id, input.line_id, input.quantity);
   return {
     content: `Cart updated. ${cart.totalQuantity} item(s).`,
@@ -527,6 +583,22 @@ async function handleCartUpdateLines(input: Record<string, any>): Promise<ToolRe
 }
 
 async function handleGetCart(input: Record<string, any>): Promise<ToolResult> {
+  if (hasLiveShopifyStore && !isLocalCartId(input.cart_id)) {
+    try {
+      const cart = await shopify.cartGet(input.cart_id);
+      return {
+        content: JSON.stringify({ totalQuantity: cart.totalQuantity, checkoutUrl: cart.checkoutUrl, lines: cart.lines.length }),
+        cart,
+      };
+    } catch (error) {
+      console.warn("[cart] Shopify get_cart failed", {
+        cartId: input.cart_id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { content: "Cart could not be loaded. Send the customer to the cart page." };
+    }
+  }
+
   const cart = localCartGet(input.cart_id);
   return {
     content: JSON.stringify({ totalQuantity: cart.totalQuantity, checkoutUrl: cart.checkoutUrl, lines: cart.lines.length }),
@@ -535,6 +607,23 @@ async function handleGetCart(input: Record<string, any>): Promise<ToolResult> {
 }
 
 async function handleGetCheckoutUrl(input: Record<string, any>): Promise<ToolResult> {
+  if (hasLiveShopifyStore && !isLocalCartId(input.cart_id)) {
+    try {
+      const cart = await shopify.cartGet(input.cart_id);
+      return {
+        content: cart.checkoutUrl,
+        checkoutUrl: cart.checkoutUrl,
+        cart,
+      };
+    } catch (error) {
+      console.warn("[cart] Shopify get_checkout_url failed", {
+        cartId: input.cart_id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { content: `https://${process.env.SHOPIFY_STORE_DOMAIN ?? "orjn.myshopify.com"}/cart` };
+    }
+  }
+
   const cart = localCartGet(input.cart_id);
   return {
     content: cart.checkoutUrl,

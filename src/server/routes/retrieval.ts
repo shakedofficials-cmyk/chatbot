@@ -14,9 +14,11 @@ const debugSearchSchema = z.object({
     minPrice: z.number().optional(),
     maxPrice: z.number().optional(),
     category: z.string().optional(),
+    type: z.string().optional(),
     color: z.string().optional(),
     size: z.string().optional(),
     productType: z.string().optional(),
+    gender: z.string().optional(),
     inStock: z.boolean().optional(),
   }).optional(),
   limit: z.number().int().min(1).max(12).optional(),
@@ -50,7 +52,11 @@ router.post("/debug", async (req: Request, res: Response) => {
 
   try {
     const { query, filters, limit, sessionId } = parsed.data;
-    const result = await hybridSearchProducts(query, filters ?? {}, {
+    const { type, ...restFilters } = filters ?? {};
+    const result = await hybridSearchProducts(query, {
+      ...restFilters,
+      category: type ?? restFilters.category,
+    }, {
       first: limit ?? 6,
       sessionId,
       toolName: "retrieval_debug",

@@ -111,10 +111,11 @@ export async function understandCatalogQuery(query: string): Promise<QueryUnders
   const genderTag = genderMatch
     ? genderMatch[1].startsWith("men") ? "men" : "women"
     : undefined;
+  const normalizedCategory = category === "basket" ? "basketball" : category;
 
   const model = deriveModel(normalizedQuery, [
     brand ?? "",
-    category ?? "",
+    normalizedCategory ?? "",
     color ?? "",
     silhouette ?? "",
     genderTag ?? "",
@@ -134,8 +135,9 @@ export async function understandCatalogQuery(query: string): Promise<QueryUnders
     brand: brand ? brand.replace(/\b\w/g, (char) => char.toUpperCase()) : undefined,
     model,
     silhouette,
-    category,
+    category: normalizedCategory,
     color,
+    gender: genderTag,
     tags: genderTag,
     size,
     minPrice: priceFilters.minPrice,
@@ -156,7 +158,8 @@ export async function understandCatalogQuery(query: string): Promise<QueryUnders
       silhouette,
       size,
       color,
-      category,
+      category: normalizedCategory,
+      gender: genderTag,
       tags: genderTag,
       styleTerms,
       rawTerms: tokenize(normalizedQuery),

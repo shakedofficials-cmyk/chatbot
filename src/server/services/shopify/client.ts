@@ -1,7 +1,7 @@
-import { env } from "../../config.js";
+import { env, shopifyClientSecret } from "../../config.js";
 import { getInstalledStorefrontAccessToken, getStorefrontAccessToken } from "./admin.js";
 
-const STOREFRONT_API_VERSION = "2024-01";
+const STOREFRONT_API_VERSION = "2026-04";
 
 interface StorefrontResponse<T> {
   data: T;
@@ -13,7 +13,7 @@ function getOperationName(query: string): string {
   return match?.[2] ?? "AnonymousOperation";
 }
 
-async function doStorefrontRequest<T>(
+async function doStorefrontRequest(
   query: string,
   variables: Record<string, unknown>,
   token: string | null
@@ -34,7 +34,9 @@ export async function storefrontQuery<T>(
   variables: Record<string, unknown> = {}
 ): Promise<T> {
   const operationName = getOperationName(query);
-  const storefrontToken = await getStorefrontAccessToken(env.SHOPIFY_STORE_DOMAIN);
+  const configuredToken = await getStorefrontAccessToken(env.SHOPIFY_STORE_DOMAIN);
+  const storefrontToken =
+    configuredToken && configuredToken !== shopifyClientSecret ? configuredToken : null;
 
   console.info("[shopify] storefront request", {
     operationName,
@@ -45,7 +47,7 @@ export async function storefrontQuery<T>(
 
   let res: globalThis.Response;
   try {
-    res = await doStorefrontRequest<T>(query, variables, storefrontToken);
+    res = await doStorefrontRequest(query, variables, storefrontToken);
 
     if (res.status === 401 && env.SHOPIFY_STOREFRONT_ACCESS_TOKEN) {
       const installedToken = await getInstalledStorefrontAccessToken(env.SHOPIFY_STORE_DOMAIN);
@@ -54,7 +56,7 @@ export async function storefrontQuery<T>(
           operationName,
           shopDomain: env.SHOPIFY_STORE_DOMAIN,
         });
-        res = await doStorefrontRequest<T>(query, variables, installedToken);
+        res = await doStorefrontRequest(query, variables, installedToken);
       }
     }
   } catch (error) {

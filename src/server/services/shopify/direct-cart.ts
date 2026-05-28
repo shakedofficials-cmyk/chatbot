@@ -88,7 +88,7 @@ export async function addVariantToCart(
       const cart = await deps.cartCreateWithLine(input.variantId, quantity);
       return { cart, provider: "shopify", reusedExistingCart: false };
     } catch (error) {
-      console.error("[cart] Shopify cart flow failed, falling back to local cart", {
+      console.error("[cart] Shopify cart flow failed", {
         variantId: input.variantId,
         cartId: input.cartId ?? null,
         error: error instanceof Error ? error.message : String(error),
