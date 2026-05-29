@@ -1,6 +1,7 @@
 import { env } from "../../config.js";
-import type { SearchFilters } from "../../../shared/types.js";
+import type { Product, SearchFilters } from "../../../shared/types.js";
 import { normalizeText } from "../retrieval/normalize.js";
+import { findBestVariantMatch, findSizeOptionValue } from "../size-resolution.js";
 
 const GENERIC_CATEGORIES = new Set(["shoe", "shoes", "sneaker", "sneakers"]);
 
@@ -23,7 +24,67 @@ function appendTag(url: URL, tag: string | undefined): void {
   url.searchParams.append("filter.p.tag", normalizeText(tag));
 }
 
-export function buildFilteredSearchUrl(searchTerm: string, filters: SearchFilters): string {
+function inferProductType(products: Product[]): string | undefined {
+  return products.find((product) => {
+    const productType = normalizeText(product.productType);
+    return productType && !GENERIC_CATEGORIES.has(productType);
+  })?.productType;
+}
+
+function categoryKey(value: string | undefined): string {
+  const normalized = normalizeText(value);
+  if (normalized.includes("basket")) return "basketball";
+  if (normalized.includes("running") || normalized.includes("run")) return "running";
+  if (normalized.includes("training") || normalized.includes("train")) return "training";
+  if (normalized.includes("lifestyle") || normalized.includes("life style")) return "lifestyle";
+  return normalized;
+}
+
+function typeFilterKey(category: string): string {
+  if (category === "basketball") return "basketball_type";
+  if (category === "running") return "running_type";
+  if (category === "training") return "training_type";
+  return "lifestyle_type";
+}
+
+function resolveStorefrontSizeFilter(size: string | undefined, products: Product[]): string | undefined {
+  if (!size) return undefined;
+
+  for (const product of products) {
+    const match = findBestVariantMatch(product.variants, size);
+    const variant = match.exactMatchAvailable ?? match.exactMatch;
+    if (!variant) continue;
+
+    const rawSize = findSizeOptionValue(variant.selectedOptions);
+    if (rawSize) return rawSize;
+  }
+
+  return size;
+}
+
+function enrichFiltersForUrl(filters: SearchFilters, products: Product[]): SearchFilters {
+  if (products.length === 0) return filters;
+
+  const enriched: SearchFilters = { ...filters };
+  const currentCategory = categoryKey(enriched.productType ?? enriched.category);
+  const productType = inferProductType(products);
+
+  if (productType && (!currentCategory || GENERIC_CATEGORIES.has(currentCategory))) {
+    enriched.productType = productType;
+    enriched.category = productType;
+  }
+
+  enriched.size = resolveStorefrontSizeFilter(enriched.size, products);
+
+  return enriched;
+}
+
+export function buildFilteredSearchUrl(
+  searchTerm: string,
+  filters: SearchFilters,
+  products: Product[] = []
+): string {
+  const effectiveFilters = enrichFiltersForUrl(filters, products);
   const url = new URL(`${getPublicStoreBaseUrl()}/search`);
   const normalizedTerm = searchTerm.trim();
   if (normalizedTerm) {
@@ -31,48 +92,41 @@ export function buildFilteredSearchUrl(searchTerm: string, filters: SearchFilter
   }
   url.searchParams.set("options[prefix]", "last");
 
-  if (filters.inStock || filters.size) {
+  if (effectiveFilters.inStock || effectiveFilters.size) {
     url.searchParams.set("filter.v.availability", "1");
   }
-  if (filters.size) {
-    url.searchParams.set("filter.v.option.size", filters.size);
+  if (effectiveFilters.size) {
+    url.searchParams.set("filter.v.option.size", effectiveFilters.size);
   }
-  if (filters.color) {
-    url.searchParams.set("filter.p.m.custom.color", toFilterValue(filters.color));
+  if (effectiveFilters.color) {
+    url.searchParams.set("filter.p.m.custom.color", toFilterValue(effectiveFilters.color));
   }
-  if (filters.minPrice != null) {
-    url.searchParams.set("filter.v.price.gte", String(filters.minPrice));
+  if (effectiveFilters.minPrice != null) {
+    url.searchParams.set("filter.v.price.gte", String(effectiveFilters.minPrice));
   }
-  if (filters.maxPrice != null) {
-    url.searchParams.set("filter.v.price.lte", String(filters.maxPrice));
+  if (effectiveFilters.maxPrice != null) {
+    url.searchParams.set("filter.v.price.lte", String(effectiveFilters.maxPrice));
   }
 
-  const category = normalizeText(filters.category ?? filters.productType);
+  const categorySource = effectiveFilters.productType ?? effectiveFilters.category;
+  const category = categoryKey(categorySource);
   if (category && !GENERIC_CATEGORIES.has(category)) {
-    url.searchParams.set("filter.p.product_type", toFilterValue(category));
+    url.searchParams.set("filter.p.product_type", toFilterValue(categorySource ?? category));
     appendTag(url, category);
   }
 
-  if (filters.brand) {
-    url.searchParams.set("filter.p.vendor", toFilterValue(filters.brand));
+  if (effectiveFilters.brand) {
+    url.searchParams.set("filter.p.vendor", toFilterValue(effectiveFilters.brand));
   }
 
-  const typeMetafield = filters.silhouette ?? filters.model;
-  if (typeMetafield) {
-    const typeKey =
-      category === "basketball"
-        ? "basketball_type"
-        : category === "running"
-          ? "running_type"
-          : category === "training"
-            ? "training_type"
-            : "lifestyle_type";
-    url.searchParams.set(`filter.p.m.custom.${typeKey}`, toFilterValue(typeMetafield));
+  const typeMetafield = effectiveFilters.silhouette ?? effectiveFilters.model;
+  if (typeMetafield && category && !GENERIC_CATEGORIES.has(category)) {
+    url.searchParams.set(`filter.p.m.custom.${typeFilterKey(category)}`, toFilterValue(typeMetafield));
   }
 
-  appendTag(url, filters.gender);
-  if (filters.tags && filters.tags !== filters.gender) {
-    appendTag(url, filters.tags);
+  appendTag(url, effectiveFilters.gender);
+  if (effectiveFilters.tags && effectiveFilters.tags !== effectiveFilters.gender) {
+    appendTag(url, effectiveFilters.tags);
   }
 
   return url.toString();

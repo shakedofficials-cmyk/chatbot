@@ -89,7 +89,7 @@ router.post("/", async (req: Request, res: Response) => {
       comparison: result.comparison ?? undefined,
       cartAction: result.cartAction ?? undefined,
       viewAllUrl: hasMore
-        ? buildFilteredSearchUrl(searchTerm, understanding.filters)
+        ? buildFilteredSearchUrl(searchTerm, understanding.filters, result.products)
         : undefined,
       timestamp: Date.now(),
     };

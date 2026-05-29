@@ -1,4 +1,5 @@
 import type { Product, ProductImage, ProductOption, ProductVariant, SearchFilters } from "../../../shared/types.js";
+import { findBestVariantMatch } from "../size-resolution.js";
 import { buildFilteredSearchUrl, getPublicStoreBaseUrl } from "./search-url.js";
 
 interface ShopifyProductJson {
@@ -138,28 +139,37 @@ async function fetchPublicProduct(handle: string): Promise<Product | null> {
   return mapPublicProduct((await response.json()) as ShopifyProductJson);
 }
 
+async function fetchFilteredHandles(query: string, filters: SearchFilters, limit: number): Promise<string[]> {
+  const response = await fetch(buildFilteredSearchUrl(query, filters));
+  if (!response.ok) return [];
+
+  return extractHandles(await response.text(), limit * 2);
+}
+
+function productMatchesSize(product: Product, filters: SearchFilters): boolean {
+  if (!filters.size) return true;
+
+  const match = findBestVariantMatch(product.variants, filters.size);
+  return filters.inStock
+    ? Boolean(match.exactMatchAvailable)
+    : Boolean(match.exactMatch);
+}
+
 export async function searchPublicFilteredProducts(
   query: string,
   filters: SearchFilters,
   limit = 8
 ): Promise<Product[]> {
-  const response = await fetch(buildFilteredSearchUrl(query, filters));
-  if (!response.ok) return [];
+  let handles = await fetchFilteredHandles(query, filters, limit);
 
-  const handles = extractHandles(await response.text(), limit * 2);
+  if (handles.length === 0 && filters.size) {
+    const relaxedFilters = { ...filters, size: undefined };
+    handles = await fetchFilteredHandles(query, relaxedFilters, limit);
+  }
+
   const products = await Promise.all(handles.map((handle) => fetchPublicProduct(handle)));
   return products
     .filter((product): product is Product => Boolean(product))
-    .filter((product) => {
-      if (!filters.size) return true;
-      return product.variants.some((variant) => {
-        const hasSize = variant.selectedOptions.some(
-          (option) =>
-            option.name.toLowerCase().includes("size") &&
-            option.value.toLowerCase() === filters.size?.toLowerCase()
-        );
-        return hasSize && (!filters.inStock || variant.availableForSale);
-      });
-    })
+    .filter((product) => productMatchesSize(product, filters))
     .slice(0, limit);
 }
