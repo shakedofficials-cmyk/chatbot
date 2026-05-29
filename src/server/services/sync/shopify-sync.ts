@@ -68,7 +68,7 @@ async function* streamAdminProducts(): AsyncGenerator<Product[]> {
     const data = (await res.json()) as { products: any[] };
     const activeProducts = data.products.filter((raw) => !raw.status || raw.status === "active");
     const page: Product[] = [];
-    const batchSize = 8;
+    const batchSize = 2;
 
     for (let i = 0; i < activeProducts.length; i += batchSize) {
       const batch = activeProducts.slice(i, i + batchSize);
@@ -90,31 +90,50 @@ async function fetchAdminCustomMetafields(
   productId: number | string
 ): Promise<Record<string, string>> {
   const url = `https://${env.SHOPIFY_STORE_DOMAIN}/admin/api/2026-04/products/${productId}/metafields.json?namespace=custom&limit=250`;
-  const res = await fetch(url, {
-    headers: {
-      "X-Shopify-Access-Token": adminToken,
-      "Content-Type": "application/json",
-    },
-  });
 
-  if (!res.ok) {
-    console.warn("[sync] Shopify Admin metafields fetch failed", {
-      productId,
-      status: res.status,
-      statusText: res.statusText,
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const res = await fetch(url, {
+      headers: {
+        "X-Shopify-Access-Token": adminToken,
+        "Content-Type": "application/json",
+      },
     });
-    return {};
-  }
 
-  const data = (await res.json()) as { metafields?: Array<{ key: string; value: string }> };
-  const output: Record<string, string> = {};
-  for (const metafield of data.metafields ?? []) {
-    if (CUSTOM_PRODUCT_METAFIELDS.includes(metafield.key as any) && metafield.value) {
-      output[metafield.key] = metafield.value;
+    if (res.status === 429) {
+      const retryAfter = Number(res.headers.get("Retry-After"));
+      const delayMs = Number.isFinite(retryAfter) && retryAfter > 0
+        ? retryAfter * 1000
+        : 750 * (attempt + 1);
+      await sleep(delayMs);
+      continue;
     }
+
+    if (!res.ok) {
+      console.warn("[sync] Shopify Admin metafields fetch failed", {
+        productId,
+        status: res.status,
+        statusText: res.statusText,
+      });
+      return {};
+    }
+
+    const data = (await res.json()) as { metafields?: Array<{ key: string; value: string }> };
+    const output: Record<string, string> = {};
+    for (const metafield of data.metafields ?? []) {
+      if (CUSTOM_PRODUCT_METAFIELDS.includes(metafield.key as any) && metafield.value) {
+        output[metafield.key] = metafield.value;
+      }
+    }
+
+    return output;
   }
 
-  return output;
+  console.warn("[sync] Shopify Admin metafields fetch rate limited after retries", { productId });
+  return {};
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
