@@ -5,8 +5,9 @@ import { openaiOrchestrate } from "../services/ai/openai-orchestrator.js";
 import { devOrchestrate } from "../services/ai/dev-orchestrator.js";
 import { getOrCreateSession, updateSession, trimHistory } from "../services/session/index.js";
 import { logEvent } from "../services/analytics/index.js";
-import { aiProvider, env } from "../config.js";
+import { aiProvider } from "../config.js";
 import { understandCatalogQuery } from "../services/retrieval/query-understanding.js";
+import { buildFilteredSearchUrl } from "../services/shopify/search-url.js";
 import type { ChatMessage, ShopperPreferences } from "../../shared/types.js";
 
 const PRODUCTS_PER_RESPONSE = 5;
@@ -88,7 +89,7 @@ router.post("/", async (req: Request, res: Response) => {
       comparison: result.comparison ?? undefined,
       cartAction: result.cartAction ?? undefined,
       viewAllUrl: hasMore
-        ? `https://${env.SHOPIFY_STORE_DOMAIN}/search?q=${encodeURIComponent(searchTerm)}`
+        ? buildFilteredSearchUrl(searchTerm, understanding.filters)
         : undefined,
       timestamp: Date.now(),
     };

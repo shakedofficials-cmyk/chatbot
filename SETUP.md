@@ -64,6 +64,7 @@ postgresql://user:password@host:5432/database_name
 2. Copy `.env.example` to `.env` and fill in your values:
    ```
    SHOPIFY_STORE_DOMAIN=your-store.myshopify.com
+   SHOPIFY_PUBLIC_STORE_URL=https://your-public-store-domain.com
    SHOPIFY_CLIENT_ID=your-shopify-app-client-id
    SHOPIFY_CLIENT_SECRET=your-shopify-app-client-secret
    SHOPIFY_APP_URL=https://your-backend-url.com
@@ -170,6 +171,7 @@ These show up automatically in product cards and comparisons.
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `SHOPIFY_STORE_DOMAIN` | Yes | Your `.myshopify.com` domain |
+| `SHOPIFY_PUBLIC_STORE_URL` | No | Public storefront URL used for View More/search links |
 | `SHOPIFY_CLIENT_ID` | Yes | Shopify app client ID |
 | `SHOPIFY_CLIENT_SECRET` | Yes | Shopify app client secret |
 | `SHOPIFY_APP_URL` | Yes for OAuth install flow | Public backend base URL used for OAuth redirects |

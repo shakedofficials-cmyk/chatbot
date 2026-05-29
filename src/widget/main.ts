@@ -316,10 +316,16 @@ function ensureStyles(): void {
     }
 
     .orjn-product {
+      display: grid;
+      grid-template-columns: 112px minmax(0, 1fr);
       border: 1px solid var(--orjn-border);
       overflow: hidden;
       background: var(--orjn-bg-elevated);
       transition: border-color 120ms ease;
+    }
+
+    .orjn-product.no-image {
+      grid-template-columns: 1fr;
     }
 
     .orjn-product:hover {
@@ -329,14 +335,19 @@ function ensureStyles(): void {
     .orjn-product img {
       display: block;
       width: 100%;
-      aspect-ratio: 4 / 3;
-      object-fit: cover;
-      background: #0d0d0d;
+      height: 112px;
+      object-fit: contain;
+      background: #f4f4f1;
     }
 
     .orjn-product-info {
-      padding: 12px 14px;
-      border-top: 1px solid var(--orjn-border);
+      min-width: 0;
+      padding: 9px 10px;
+      border-left: 1px solid var(--orjn-border);
+    }
+
+    .orjn-product.no-image .orjn-product-info {
+      border-left: 0;
     }
 
     .orjn-product-vendor {
@@ -349,9 +360,9 @@ function ensureStyles(): void {
     }
 
     .orjn-product-title {
-      margin: 0 0 10px;
-      font-size: 13px;
-      line-height: 1.3;
+      margin: 0 0 7px;
+      font-size: 11px;
+      line-height: 1.25;
       color: var(--orjn-text);
       font-weight: 700;
       text-transform: uppercase;
@@ -361,9 +372,9 @@ function ensureStyles(): void {
 
     .orjn-product-price {
       display: flex;
-      gap: 10px;
+      gap: 8px;
       align-items: baseline;
-      font-size: 15px;
+      font-size: 13px;
       font-weight: 800;
       font-family: 'Jost', sans-serif;
       color: var(--orjn-text);
@@ -381,11 +392,11 @@ function ensureStyles(): void {
     }
 
     .orjn-meta {
-      margin-top: 9px;
-      padding-top: 9px;
+      margin-top: 7px;
+      padding-top: 7px;
       border-top: 1px solid var(--orjn-border);
-      font-size: 9px;
-      line-height: 1.5;
+      font-size: 8px;
+      line-height: 1.45;
       color: var(--orjn-text-muted);
       font-family: 'Inter', monospace;
       letter-spacing: 0.08em;
@@ -404,8 +415,9 @@ function ensureStyles(): void {
 
     .orjn-product-btn {
       display: block;
+      grid-column: 1 / -1;
       width: 100%;
-      padding: 13px 14px;
+      padding: 10px 12px;
       background: var(--orjn-volt);
       color: #0A0A0A;
       font-size: 9px;
@@ -423,14 +435,15 @@ function ensureStyles(): void {
 
     /* ─── SIZE PICKER GRID ──────────────────────────────────── */
     .orjn-size-grid {
+      grid-column: 1 / -1;
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
       gap: 4px;
-      padding: 10px 14px 12px;
+      padding: 8px 10px 10px;
     }
 
     .orjn-size-btn {
-      padding: 8px 2px;
+      padding: 7px 2px;
       font-size: 9px;
       font-weight: 700;
       letter-spacing: 0.1em;
@@ -748,6 +761,14 @@ function ensureStyles(): void {
 
       .orjn-input-area {
         padding-bottom: env(safe-area-inset-bottom, 0px);
+      }
+
+      .orjn-product {
+        grid-template-columns: 104px minmax(0, 1fr);
+      }
+
+      .orjn-product img {
+        height: 104px;
       }
     }
   `;
@@ -1358,6 +1379,8 @@ class ORJNConciergeWidget {
       img.alt = product.images[0].altText || product.title;
       img.loading = "lazy";
       card.appendChild(img);
+    } else {
+      card.classList.add("no-image");
     }
 
     const info = document.createElement("div");

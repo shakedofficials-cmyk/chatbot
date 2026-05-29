@@ -317,7 +317,7 @@ export async function executeMockTool(
       const cart = mockCarts.get(input.cart_id);
       if (!cart) return { content: "Cart not found." };
       await logEvent(sessionId, "checkout_started", {});
-      return { content: cart.checkoutUrl, checkoutUrl: cart.checkoutUrl, cart };
+      return { content: "Checkout is ready.", checkoutUrl: cart.checkoutUrl, cart };
     }
 
     case "get_policy":

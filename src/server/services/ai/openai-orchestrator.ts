@@ -34,6 +34,7 @@ IDENTITY:
 PRODUCT RULES — NON-NEGOTIABLE:
 - NEVER fabricate or guess product names, prices, sizes, stock, or availability. Use tools every time.
 - When someone asks about a product, ALWAYS call search_products or get_product first.
+- Specific discovery requests like "I want a blue Air Force 1 size 44" mean SEARCH, not cart. Call search_products with model/silhouette, color, size, and in_stock true so the cards show every matching product.
 - "What sizes do you have?" or "what's available?" → call get_size_availability with handle_or_id only (no size). Returns full size matrix. If no handle is known, call search_products first to find the specific product, then use that handle.
 - "Do you have size 44?" → call get_size_availability with both handle_or_id and size.
 - For a specific size/color combination before adding to cart → call get_variant_by_options.
@@ -44,17 +45,18 @@ PRODUCT RULES — NON-NEGOTIABLE:
 - For policy questions (shipping, returns, authenticity, payments), call get_policy.
 - For comparisons, call compare_products.
 - For alternatives, call find_similar_products.
-- To add to cart: resolve the exact variant first with get_variant_by_options, then cart_create if no cart exists, then cart_add_lines.
+- Only add to cart when the customer explicitly says add to cart, add it, cart, checkout, or secure pair. "I want", "show me", "find me", "suggest", and "do you have" are search/availability requests.
+- To add to cart after an explicit cart request: resolve the exact variant first with get_variant_by_options, then cart_create if no cart exists, then cart_add_lines.
 - One clarifying question max if the intent is unclear — then act.
 - Log relevant events with log_event.
 
 SALESPERSON BEHAVIOR:
 - You're closing, not describing. Move them toward the purchase.
 - When a product is already in context, state sizes in plain text. Don't defer to the cards.
-- When they say "I want the 44 one" or "add size 42", resolve the variant with get_variant_by_options (using the handle from recent context) and add it via cart_add_lines. Don't ask them to reconfirm.
+- When they say "I want the 44 one", treat it as a size availability/search request unless they also say add/cart/checkout. When they say "add size 42", resolve the variant with get_variant_by_options and add it via cart_add_lines.
 - If a size isn't in stock, name the closest available sizes in the same sentence and offer to add one.
 - Never say "check the cards", "refresh the page", or "try again later." If a tool returns an error, retry — call search_products to reground, then retry the original action.
-- After adding to cart: give them the checkout link and nudge them to complete it.
+- After adding to cart: do not paste checkout URLs. Say it was added and let the frontend/cart button handle navigation.
 
 FORMAT — CRITICAL:
 - Product cards with images, prices, and Add to Cart are rendered automatically by the frontend. Do NOT list product names, prices, or details in your text reply.
@@ -68,7 +70,7 @@ STORE NAVIGATION:
 - Store domain: ${SHOP_DOMAIN}
 - If a customer wants to browse a category themselves, give them the URL: https://${SHOP_DOMAIN}/collections/{collection-handle} or https://${SHOP_DOMAIN}/search?q={query}
 - Known collections: /collections/men, /collections/women, /collections/sneakers, /collections/lifestyle, /collections/new-arrivals, /collections/sale
-- Always show the URL as plain text — never as markdown links. Just paste the URL.
+- Avoid raw URLs in chat replies when product cards or View More buttons are available.
 
 FILTER USAGE — TAGS & GENDER:
 - Products are tagged with audience/lifestyle identifiers like "men", "women", "lifestyle", "running", "basketball", "training".
@@ -89,6 +91,26 @@ interface OrchestratorResult {
 interface OrchestratorContext {
   recentProductHandles?: string[];
   preferences?: Record<string, unknown>;
+}
+
+const CART_SIDE_EFFECT_TOOLS = new Set([
+  "cart_create",
+  "cart_add_lines",
+  "cart_update_lines",
+  "get_checkout_url",
+]);
+
+function userExplicitlyRequestedCartAction(message: string): boolean {
+  return /\b(add|added|cart|checkout|check out|secure pair|bag)\b/i.test(message);
+}
+
+function sanitizeAssistantReply(reply: string): string {
+  return reply
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/\bComplete your purchase:\s*/gi, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function formatRecentProductContext(products: Product[]): string {
@@ -181,9 +203,19 @@ export async function openaiOrchestrate(
 
       let result: ToolResult;
       try {
-        result = usesMockShopify
-          ? await executeMockTool(fnName, fnArgs, sessionId, context)
-          : await executeTool(fnName, fnArgs, sessionId, context);
+        if (
+          CART_SIDE_EFFECT_TOOLS.has(fnName) &&
+          !userExplicitlyRequestedCartAction(userMessage)
+        ) {
+          result = {
+            content:
+              "Cart action blocked: the customer asked to search/check availability, not to add to cart. Use search_products and show matching product cards.",
+          };
+        } else {
+          result = usesMockShopify
+            ? await executeMockTool(fnName, fnArgs, sessionId, context)
+            : await executeTool(fnName, fnArgs, sessionId, context);
+        }
       } catch (err) {
         console.error("[chat] tool execution failed", {
           sessionId,
@@ -236,6 +268,7 @@ export async function openaiOrchestrate(
       .filter((c: any) => c.type === "output_text")
       .map((c: any) => c.text)
       .join("\n") || "I couldn't process that. Could you try again?";
+  const sanitizedReply = sanitizeAssistantReply(reply) || "Done.";
 
   // Deduplicate products by handle
   const seen = new Set<string>();
@@ -246,7 +279,7 @@ export async function openaiOrchestrate(
   });
 
   return {
-    reply,
+    reply: sanitizedReply,
     products: collectedProducts,
     comparison: collectedComparison,
     cartAction: collectedCartAction,

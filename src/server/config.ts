@@ -3,6 +3,7 @@ import { z } from "zod";
 
 const envSchema = z.object({
   SHOPIFY_STORE_DOMAIN: z.string().default("demo.myshopify.com"),
+  SHOPIFY_PUBLIC_STORE_URL: z.string().default(""),
   SHOPIFY_STOREFRONT_ACCESS_TOKEN: z.string().default(""),
   SHOPIFY_API_KEY: z.string().default(""),
   SHOPIFY_API_SECRET: z.string().default(""),

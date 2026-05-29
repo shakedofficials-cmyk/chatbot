@@ -35,6 +35,23 @@ interface SearchOptions {
   toolName?: string;
 }
 
+function hasMeaningfulFilters(filters: SearchFilters): boolean {
+  return Boolean(
+    filters.brand ||
+      filters.model ||
+      filters.silhouette ||
+      filters.category ||
+      filters.color ||
+      filters.size ||
+      filters.productType ||
+      filters.gender ||
+      filters.tags ||
+      filters.inStock ||
+      filters.minPrice != null ||
+      filters.maxPrice != null
+  );
+}
+
 function dbRowToProduct(row: SyncProductRow): Product {
   return {
     id: row.id,
@@ -509,20 +526,43 @@ export async function hybridSearchProducts(
   // like "Air Force 1" never silently return zero when the products exist in the DB.
   if (lexicalCandidates.length === 0 && semanticCandidates.length === 0) {
     const normalizedQ = normalizeText(query);
-    const fallback = await prisma.syncProduct.findMany({
-      where: {
-        OR: [
-          { normalizedTitle: { contains: normalizedQ } },
-          { searchText: { contains: normalizedQ } },
-          { silhouette: { contains: normalizedQ } },
-          { modelKey: { contains: normalizedQ } },
-        ],
-      },
-      select: { id: true },
-      take: 24,
-    });
-    lexicalCandidates = fallback.map((row) => ({ productId: row.id, score: 0.5 }));
-    console.warn("[search] both lexical+semantic returned 0 — title-fallback used", { query, normalizedQ, fallbackCount: fallback.length });
+    const filteredFallback = hasMeaningfulFilters(mergedFilters)
+      ? await prisma.syncProduct.findMany({
+          where: buildWhere(mergedFilters),
+          select: { id: true },
+          orderBy: [
+            { availableVariantCount: "desc" },
+            { updatedAt: "desc" },
+          ],
+          take: 24,
+        })
+      : [];
+
+    if (filteredFallback.length > 0) {
+      lexicalCandidates = filteredFallback.map((row) => ({ productId: row.id, score: 0.6 }));
+      console.warn("[search] both lexical+semantic returned 0 - filtered fallback used", {
+        query,
+        normalizedQ,
+        fallbackCount: filteredFallback.length,
+      });
+    }
+
+    if (lexicalCandidates.length === 0) {
+      const fallback = await prisma.syncProduct.findMany({
+        where: {
+          OR: [
+            { normalizedTitle: { contains: normalizedQ } },
+            { searchText: { contains: normalizedQ } },
+            { silhouette: { contains: normalizedQ } },
+            { modelKey: { contains: normalizedQ } },
+          ],
+        },
+        select: { id: true },
+        take: 24,
+      });
+      lexicalCandidates = fallback.map((row) => ({ productId: row.id, score: 0.5 }));
+      console.warn("[search] both lexical+semantic returned 0 - title fallback used", { query, normalizedQ, fallbackCount: fallback.length });
+    }
   }
 
   const candidateIds = Array.from(

@@ -513,7 +513,7 @@ async function handleCartCreate(): Promise<ToolResult> {
     try {
       const cart = await shopify.cartCreate();
       return {
-        content: JSON.stringify({ cartId: cart.id, checkoutUrl: cart.checkoutUrl }),
+        content: JSON.stringify({ cartId: cart.id, totalQuantity: cart.totalQuantity }),
         cart,
       };
     } catch (error) {
@@ -525,7 +525,7 @@ async function handleCartCreate(): Promise<ToolResult> {
 
   const cart = localCartCreate();
   return {
-    content: JSON.stringify({ cartId: cart.id, checkoutUrl: cart.checkoutUrl }),
+    content: JSON.stringify({ cartId: cart.id, totalQuantity: cart.totalQuantity }),
     cart,
   };
 }
@@ -537,7 +537,7 @@ async function handleCartAddLines(input: Record<string, any>): Promise<ToolResul
         ? await shopify.cartAddLines(input.cart_id, input.variant_id, input.quantity ?? 1)
         : await shopify.cartCreateWithLine(input.variant_id, input.quantity ?? 1);
       return {
-        content: `Added to cart. Cart now has ${cart.totalQuantity} item(s). Checkout: ${cart.checkoutUrl}`,
+        content: `Added to cart. Cart now has ${cart.totalQuantity} item(s).`,
         cart,
       };
     } catch (error) {
@@ -552,7 +552,7 @@ async function handleCartAddLines(input: Record<string, any>): Promise<ToolResul
   const cartId = input.cart_id ?? localCartCreate().id;
   const cart = localCartAddLines(cartId, input.variant_id, input.quantity ?? 1);
   return {
-    content: `Added to cart. Cart now has ${cart.totalQuantity} item(s). Checkout: ${cart.checkoutUrl}`,
+    content: `Added to cart. Cart now has ${cart.totalQuantity} item(s).`,
     cart,
   };
 }
@@ -587,7 +587,7 @@ async function handleGetCart(input: Record<string, any>): Promise<ToolResult> {
     try {
       const cart = await shopify.cartGet(input.cart_id);
       return {
-        content: JSON.stringify({ totalQuantity: cart.totalQuantity, checkoutUrl: cart.checkoutUrl, lines: cart.lines.length }),
+        content: JSON.stringify({ totalQuantity: cart.totalQuantity, lines: cart.lines.length }),
         cart,
       };
     } catch (error) {
@@ -601,7 +601,7 @@ async function handleGetCart(input: Record<string, any>): Promise<ToolResult> {
 
   const cart = localCartGet(input.cart_id);
   return {
-    content: JSON.stringify({ totalQuantity: cart.totalQuantity, checkoutUrl: cart.checkoutUrl, lines: cart.lines.length }),
+    content: JSON.stringify({ totalQuantity: cart.totalQuantity, lines: cart.lines.length }),
     cart,
   };
 }
@@ -611,7 +611,7 @@ async function handleGetCheckoutUrl(input: Record<string, any>): Promise<ToolRes
     try {
       const cart = await shopify.cartGet(input.cart_id);
       return {
-        content: cart.checkoutUrl,
+        content: "Checkout is ready.",
         checkoutUrl: cart.checkoutUrl,
         cart,
       };
@@ -620,13 +620,13 @@ async function handleGetCheckoutUrl(input: Record<string, any>): Promise<ToolRes
         cartId: input.cart_id,
         error: error instanceof Error ? error.message : String(error),
       });
-      return { content: `https://${process.env.SHOPIFY_STORE_DOMAIN ?? "orjn.myshopify.com"}/cart` };
+      return { content: "Checkout could not be loaded. Use the cart page." };
     }
   }
 
   const cart = localCartGet(input.cart_id);
   return {
-    content: cart.checkoutUrl,
+    content: "Checkout is ready.",
     checkoutUrl: cart.checkoutUrl,
     cart,
   };
