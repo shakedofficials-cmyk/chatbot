@@ -38,7 +38,7 @@ export function buildFilteredSearchUrl(searchTerm: string, filters: SearchFilter
     url.searchParams.set("filter.v.option.size", filters.size);
   }
   if (filters.color) {
-    url.searchParams.set("filter.v.option.color", toFilterValue(filters.color));
+    url.searchParams.set("filter.p.m.custom.color", toFilterValue(filters.color));
   }
   if (filters.minPrice != null) {
     url.searchParams.set("filter.v.price.gte", String(filters.minPrice));
@@ -51,6 +51,23 @@ export function buildFilteredSearchUrl(searchTerm: string, filters: SearchFilter
   if (category && !GENERIC_CATEGORIES.has(category)) {
     url.searchParams.set("filter.p.product_type", toFilterValue(category));
     appendTag(url, category);
+  }
+
+  if (filters.brand) {
+    url.searchParams.set("filter.p.vendor", toFilterValue(filters.brand));
+  }
+
+  const typeMetafield = filters.silhouette ?? filters.model;
+  if (typeMetafield) {
+    const typeKey =
+      category === "basketball"
+        ? "basketball_type"
+        : category === "running"
+          ? "running_type"
+          : category === "training"
+            ? "training_type"
+            : "lifestyle_type";
+    url.searchParams.set(`filter.p.m.custom.${typeKey}`, toFilterValue(typeMetafield));
   }
 
   appendTag(url, filters.gender);

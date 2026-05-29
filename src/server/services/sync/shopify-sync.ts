@@ -33,6 +33,14 @@ interface StorefrontProductPage {
   };
 }
 
+const CUSTOM_PRODUCT_METAFIELDS = [
+  "color",
+  "lifestyle_type",
+  "basketball_type",
+  "running_type",
+  "training_type",
+] as const;
+
 /**
  * Stream all products via the Shopify Admin REST API one page at a time.
  * Token is fetched/refreshed via client_credentials on each page (cached in-process).
@@ -58,10 +66,16 @@ async function* streamAdminProducts(): AsyncGenerator<Product[]> {
     }
 
     const data = (await res.json()) as { products: any[] };
+    const activeProducts = data.products.filter((raw) => !raw.status || raw.status === "active");
     const page: Product[] = [];
-    for (const raw of data.products) {
-      if (raw.status && raw.status !== "active") continue;
-      page.push(mapAdminProduct(raw));
+    const batchSize = 8;
+
+    for (let i = 0; i < activeProducts.length; i += batchSize) {
+      const batch = activeProducts.slice(i, i + batchSize);
+      const mapped = await Promise.all(
+        batch.map(async (raw) => mapAdminProduct(raw, await fetchAdminCustomMetafields(adminToken, raw.id)))
+      );
+      page.push(...mapped);
     }
     if (page.length > 0) yield page;
 
@@ -69,6 +83,38 @@ async function* streamAdminProducts(): AsyncGenerator<Product[]> {
     const nextMatch: RegExpMatchArray | null = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
     url = nextMatch ? nextMatch[1] : null;
   }
+}
+
+async function fetchAdminCustomMetafields(
+  adminToken: string,
+  productId: number | string
+): Promise<Record<string, string>> {
+  const url = `https://${env.SHOPIFY_STORE_DOMAIN}/admin/api/2026-04/products/${productId}/metafields.json?namespace=custom&limit=250`;
+  const res = await fetch(url, {
+    headers: {
+      "X-Shopify-Access-Token": adminToken,
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    console.warn("[sync] Shopify Admin metafields fetch failed", {
+      productId,
+      status: res.status,
+      statusText: res.statusText,
+    });
+    return {};
+  }
+
+  const data = (await res.json()) as { metafields?: Array<{ key: string; value: string }> };
+  const output: Record<string, string> = {};
+  for (const metafield of data.metafields ?? []) {
+    if (CUSTOM_PRODUCT_METAFIELDS.includes(metafield.key as any) && metafield.value) {
+      output[metafield.key] = metafield.value;
+    }
+  }
+
+  return output;
 }
 
 /**
@@ -121,7 +167,7 @@ async function* streamStorefrontProducts(): AsyncGenerator<Product[]> {
  * Map a Shopify Admin REST product to our shared Product type.
  * Admin API returns inventory_quantity and inventory_policy for accurate availability.
  */
-function mapAdminProduct(raw: any): Product {
+function mapAdminProduct(raw: any, customMetafields: Record<string, string> = {}): Product {
   const variants: ProductVariant[] = (raw.variants ?? []).map(
     (v: any, _i: number): ProductVariant => {
       const selectedOptions: { name: string; value: string }[] = [];
@@ -188,7 +234,13 @@ function mapAdminProduct(raw: any): Product {
       minVariantPrice: { amount: minPrice, currencyCode: "USD" },
       maxVariantPrice: { amount: maxPrice, currencyCode: "USD" },
     },
-    metafields: {},
+    metafields: {
+      customColor: customMetafields.color,
+      lifestyleType: customMetafields.lifestyle_type,
+      basketballType: customMetafields.basketball_type,
+      runningType: customMetafields.running_type,
+      trainingType: customMetafields.training_type,
+    },
   };
 }
 
@@ -275,6 +327,11 @@ async function upsertProduct(product: Product): Promise<void> {
     product.metafields.materialSummary,
     product.metafields.recommendedUse,
     product.metafields.compareHighlights,
+    product.metafields.customColor,
+    product.metafields.lifestyleType,
+    product.metafields.basketballType,
+    product.metafields.runningType,
+    product.metafields.trainingType,
   ]);
   const embeddingText = buildEmbeddingText(product);
   const modelKey = extractModelKey(product);

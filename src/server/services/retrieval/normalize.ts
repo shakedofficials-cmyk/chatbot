@@ -146,6 +146,11 @@ export function buildEmbeddingText(product: Product): string {
     product.metafields.recommendedUse,
     product.metafields.compareHighlights,
     product.metafields.styleTags?.join(" "),
+    product.metafields.customColor,
+    product.metafields.lifestyleType,
+    product.metafields.basketballType,
+    product.metafields.runningType,
+    product.metafields.trainingType,
     ...product.variants.map((variant) => variant.selectedOptions.map((option) => `${option.name} ${option.value}`).join(" ")),
   ]
     .filter(Boolean)
@@ -201,6 +206,11 @@ export function inferSilhouette(product: Product): string | null {
     product.productType,
     product.tags.join(" "),
     product.metafields.styleTags?.join(" "),
+    product.metafields.customColor,
+    product.metafields.lifestyleType,
+    product.metafields.basketballType,
+    product.metafields.runningType,
+    product.metafields.trainingType,
   ]);
 
   const knownSilhouettes = [
@@ -218,7 +228,13 @@ export function inferSilhouette(product: Product): string | null {
     "handball spezial",
   ];
 
-  return knownSilhouettes.find((item) => haystack.includes(item)) ?? null;
+  const customType =
+    product.metafields.lifestyleType ??
+    product.metafields.basketballType ??
+    product.metafields.runningType ??
+    product.metafields.trainingType;
+
+  return customType ? normalizeText(customType) : knownSilhouettes.find((item) => haystack.includes(item)) ?? null;
 }
 
 export function inferCategory(product: Product): string | null {
@@ -233,6 +249,7 @@ export function extractColorTokens(product: Product): string[] {
   const source = buildSearchText([
     product.title,
     product.tags.join(" "),
+    product.metafields.customColor,
     ...product.variants.flatMap((variant) => variant.selectedOptions.map((option) => option.value)),
   ]);
 

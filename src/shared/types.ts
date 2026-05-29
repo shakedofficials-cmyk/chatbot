@@ -61,6 +61,11 @@ export interface ProductMetafields {
   materialSummary?: string;
   recommendedUse?: string;
   compareHighlights?: string;
+  customColor?: string;
+  lifestyleType?: string;
+  basketballType?: string;
+  runningType?: string;
+  trainingType?: string;
 }
 
 // ── Cart types ──

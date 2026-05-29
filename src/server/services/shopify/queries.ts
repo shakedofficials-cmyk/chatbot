@@ -41,6 +41,11 @@ const PRODUCT_FRAGMENT = `
     materialSummary: metafield(namespace: "orjn", key: "material_summary") { value }
     recommendedUse: metafield(namespace: "orjn", key: "recommended_use") { value }
     compareHighlights: metafield(namespace: "orjn", key: "compare_highlights") { value }
+    customColor: metafield(namespace: "custom", key: "color") { value }
+    lifestyleType: metafield(namespace: "custom", key: "lifestyle_type") { value }
+    basketballType: metafield(namespace: "custom", key: "basketball_type") { value }
+    runningType: metafield(namespace: "custom", key: "running_type") { value }
+    trainingType: metafield(namespace: "custom", key: "training_type") { value }
   }
 `;
 

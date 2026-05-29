@@ -43,6 +43,11 @@ function mapMetafields(raw: any): ProductMetafields {
   if (raw.materialSummary?.value) meta.materialSummary = raw.materialSummary.value;
   if (raw.recommendedUse?.value) meta.recommendedUse = raw.recommendedUse.value;
   if (raw.compareHighlights?.value) meta.compareHighlights = raw.compareHighlights.value;
+  if (raw.customColor?.value) meta.customColor = raw.customColor.value;
+  if (raw.lifestyleType?.value) meta.lifestyleType = raw.lifestyleType.value;
+  if (raw.basketballType?.value) meta.basketballType = raw.basketballType.value;
+  if (raw.runningType?.value) meta.runningType = raw.runningType.value;
+  if (raw.trainingType?.value) meta.trainingType = raw.trainingType.value;
   return meta;
 }
 
