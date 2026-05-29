@@ -1,6 +1,7 @@
 import type { Cart, Product, ProductComparison, SearchFilters, ShopperPreferences } from "../../../shared/types.js";
 import * as shopify from "../shopify/storefront.js";
 import * as dbProducts from "../products/db-products.js";
+import { searchPublicFilteredProducts } from "../shopify/public-search.js";
 import { hasLiveShopifyStore } from "../../config.js";
 import {
   localCartCreate,
@@ -103,7 +104,11 @@ async function handleSearchProducts(
     preferences: (context.preferences ?? {}) as ShopperPreferences,
   });
 
-  const products = await dbProducts.searchProducts(enriched.query, enriched.filters, 8, sessionId);
+  let products = await dbProducts.searchProducts(enriched.query, enriched.filters, 8, sessionId);
+
+  if (products.length === 0 && hasLiveShopifyStore) {
+    products = await searchPublicFilteredProducts(enriched.query, enriched.filters, 8);
+  }
 
   await logEvent(sessionId, "product_search", {
     query: input.query,

@@ -4,7 +4,7 @@ import { normalizeText } from "../retrieval/normalize.js";
 
 const GENERIC_CATEGORIES = new Set(["shoe", "shoes", "sneaker", "sneakers"]);
 
-function getPublicStoreBaseUrl(): string {
+export function getPublicStoreBaseUrl(): string {
   const configured = env.SHOPIFY_PUBLIC_STORE_URL.trim();
   const base = configured || `https://${env.SHOPIFY_STORE_DOMAIN}`;
   return base.replace(/\/+$/, "");
