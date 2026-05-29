@@ -44,16 +44,31 @@ function absoluteUrl(value: string | undefined): string {
 
 function extractHandles(html: string, limit: number): string[] {
   const handles = new Set<string>();
+  const markerIndex = html.indexOf("productVariants");
+  const resultSection = markerIndex >= 0
+    ? html.slice(markerIndex, markerIndex + 250_000)
+    : html;
+  const normalizedSection = resultSection
+    .replace(/\\u0026/g, "&")
+    .replace(/\\\//g, "/")
+    .replace(/\\"/g, "\"");
   const patterns = [
-    /\/products\/([a-z0-9][a-z0-9-]*)/gi,
-    /\\\/products\\\/([a-z0-9][a-z0-9-]*)/gi,
+    /"url":"\/products\/([a-z0-9][a-z0-9-]*)/gi,
+    /"url":"https?:\/\/[^/]+\/products\/([a-z0-9][a-z0-9-]*)/gi,
   ];
 
   for (const pattern of patterns) {
-    for (const match of html.matchAll(pattern)) {
+    for (const match of normalizedSection.matchAll(pattern)) {
       handles.add(match[1]);
       if (handles.size >= limit) return Array.from(handles);
     }
+  }
+
+  if (handles.size > 0) return Array.from(handles);
+
+  for (const match of normalizedSection.matchAll(/\/products\/([a-z0-9][a-z0-9-]*)/gi)) {
+    handles.add(match[1]);
+    if (handles.size >= limit) break;
   }
 
   return Array.from(handles);
@@ -133,5 +148,18 @@ export async function searchPublicFilteredProducts(
 
   const handles = extractHandles(await response.text(), limit * 2);
   const products = await Promise.all(handles.map((handle) => fetchPublicProduct(handle)));
-  return products.filter((product): product is Product => Boolean(product)).slice(0, limit);
+  return products
+    .filter((product): product is Product => Boolean(product))
+    .filter((product) => {
+      if (!filters.size) return true;
+      return product.variants.some((variant) => {
+        const hasSize = variant.selectedOptions.some(
+          (option) =>
+            option.name.toLowerCase().includes("size") &&
+            option.value.toLowerCase() === filters.size?.toLowerCase()
+        );
+        return hasSize && (!filters.inStock || variant.availableForSale);
+      });
+    })
+    .slice(0, limit);
 }
