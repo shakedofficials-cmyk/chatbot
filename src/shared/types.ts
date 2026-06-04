@@ -139,6 +139,7 @@ export interface QueryUnderstanding {
     category?: string;
     gender?: string;
     tags?: string;
+    searchTerm?: string;
     styleTerms: string[];
     rawTerms: string[];
   };

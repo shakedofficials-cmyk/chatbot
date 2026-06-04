@@ -100,7 +100,6 @@ const STOP_WORDS = new Set([
   "me",
   "my",
   "need",
-  "of",
   "or",
   "pair",
   "pairs",

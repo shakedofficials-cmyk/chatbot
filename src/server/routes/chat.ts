@@ -95,7 +95,7 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     const runOrchestrate = pickOrchestrator();
-    const understanding = await understandCatalogQuery(message);
+    const understanding = await understandCatalogQuery(message, { useAi: aiProvider === "openai" });
     const result = await runOrchestrate(
       message,
       trimHistory(session.conversationHistory),
@@ -112,6 +112,7 @@ router.post("/", async (req: Request, res: Response) => {
     // Use the cleanest detected term for the "View More" search URL.
     // If no specific entity was extracted, strip common intent prefixes from the normalized query.
     const rawSearchTerm =
+      understanding.entities.searchTerm ??
       understanding.entities.silhouette ??
       understanding.entities.model ??
       understanding.entities.brand ??

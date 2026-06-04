@@ -51,6 +51,15 @@ describe("Query Understanding", () => {
     expect(result.filters.model).toBeUndefined();
   });
 
+  it("cleans filler language while preserving unknown model phrases", async () => {
+    const { understandCatalogQuery } = await import("./query-understanding.js");
+
+    const result = await understandCatalogQuery("am looking for a way of wade");
+
+    expect(result.filters.model).toBe("way of wade");
+    expect(result.entities.searchTerm).toBe("way of wade");
+  });
+
   it("routes policy and authenticity questions away from product search", async () => {
     const { understandCatalogQuery } = await import("./query-understanding.js");
 
