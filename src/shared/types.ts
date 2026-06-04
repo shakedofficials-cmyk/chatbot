@@ -167,6 +167,27 @@ export interface ShopperPreferences {
   lastIntent?: QueryIntent;
 }
 
+export type PageContextType = "home" | "product" | "collection" | "search" | "other";
+
+export interface PageContext {
+  type: PageContextType;
+  handle?: string;
+  path?: string;
+  query?: string;
+}
+
+export interface ProductInsight {
+  handle: string;
+  badges: string[];
+  reason?: string;
+}
+
+export interface ChatAction {
+  type: "whatsapp";
+  label: string;
+  url: string;
+}
+
 // ── Comparison types ──
 
 export interface ProductComparison {
@@ -188,8 +209,10 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   products?: Product[];
+  productInsights?: ProductInsight[];
   comparison?: ProductComparison;
   cartAction?: CartAction;
+  actions?: ChatAction[];
   viewAllUrl?: string;
   timestamp: number;
 }
@@ -207,6 +230,8 @@ export interface ChatRequest {
   sessionId: string;
   message: string;
   cartId?: string;
+  pageContext?: PageContext;
+  whatsappNumber?: string;
 }
 
 export interface ChatResponse {
@@ -226,8 +251,13 @@ export type AnalyticsEventName =
   | "add_to_cart"
   | "checkout_started"
   | "fallback_triggered"
+  | "guided_flow_started"
+  | "guided_flow_completed"
   | "no_result"
   | "policy_question"
+  | "recommendation_clicked"
+  | "whatsapp_clicked"
+  | "cart_recovery_clicked"
   | "size_availability_requested";
 
 export interface AnalyticsEvent {

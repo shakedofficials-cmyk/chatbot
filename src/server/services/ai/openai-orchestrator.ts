@@ -5,7 +5,7 @@ import { executeTool, type ToolResult } from "./tool-executor.js";
 import { executeMockTool } from "./mock-tool-executor.js";
 import { usesMockShopify } from "../../config.js";
 import * as dbProducts from "../products/db-products.js";
-import type { Product, ProductComparison, CartAction, SearchFilters, ShopperPreferences } from "../../../shared/types.js";
+import type { CartAction, PageContext, Product, ProductComparison, SearchFilters, ShopperPreferences } from "../../../shared/types.js";
 
 const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
 
@@ -93,6 +93,7 @@ interface OrchestratorContext {
   recentProductHandles?: string[];
   preferences?: Record<string, unknown>;
   deterministicFilters?: SearchFilters;
+  pageContext?: PageContext;
 }
 
 const CART_SIDE_EFFECT_TOOLS = new Set([
@@ -150,6 +151,16 @@ function formatPreferenceContext(preferences: Record<string, unknown> | undefine
   return lines.length > 0 ? lines.join("\n") : "";
 }
 
+function formatPageContext(pageContext: PageContext | undefined): string {
+  if (!pageContext) return "";
+  return [
+    `page_type=${pageContext.type}`,
+    pageContext.handle ? `handle=${pageContext.handle}` : null,
+    pageContext.query ? `query=${pageContext.query}` : null,
+    pageContext.path ? `path=${pageContext.path}` : null,
+  ].filter(Boolean).join("\n");
+}
+
 export async function openaiOrchestrate(
   userMessage: string,
   conversationHistory: { role: string; content: string }[],
@@ -162,10 +173,11 @@ export async function openaiOrchestrate(
     : [];
   const recentProductContext = formatRecentProductContext(recentProducts);
   const preferenceContext = formatPreferenceContext(context.preferences);
+  const pageContext = formatPageContext(context.pageContext);
 
   const userContent = cartId
-    ? `[Current cart ID: ${cartId}]\n${recentProductContext ? `\n[Recent product context]\n${recentProductContext}` : ""}${preferenceContext ? `\n[Shopper preferences]\n${preferenceContext}` : ""}\n\n${userMessage}`
-    : `${recentProductContext ? `[Recent product context]\n${recentProductContext}\n\n` : ""}${preferenceContext ? `[Shopper preferences]\n${preferenceContext}\n\n` : ""}${userMessage}`;
+    ? `[Current cart ID: ${cartId}]\n${recentProductContext ? `\n[Recent product context]\n${recentProductContext}` : ""}${preferenceContext ? `\n[Shopper preferences]\n${preferenceContext}` : ""}${pageContext ? `\n[Page context]\n${pageContext}` : ""}\n\n${userMessage}`
+    : `${recentProductContext ? `[Recent product context]\n${recentProductContext}\n\n` : ""}${preferenceContext ? `[Shopper preferences]\n${preferenceContext}\n\n` : ""}${pageContext ? `[Page context]\n${pageContext}\n\n` : ""}${userMessage}`;
 
   const input = [
     ...conversationHistory.map((msg) => ({

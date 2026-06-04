@@ -1,4 +1,4 @@
-import type { Cart, Product, ProductComparison, SearchFilters, ShopperPreferences } from "../../../shared/types.js";
+import type { Cart, PageContext, Product, ProductComparison, SearchFilters, ShopperPreferences } from "../../../shared/types.js";
 import * as shopify from "../shopify/storefront.js";
 import * as dbProducts from "../products/db-products.js";
 import { searchPublicFilteredProducts } from "../shopify/public-search.js";
@@ -34,6 +34,7 @@ export interface ToolExecutionContext {
   recentProductHandles?: string[];
   preferences?: Record<string, unknown>;
   deterministicFilters?: SearchFilters;
+  pageContext?: PageContext;
 }
 
 export async function executeTool(
@@ -247,9 +248,12 @@ async function handleGetSizeAvailability(
   const recentProducts = context.recentProductHandles?.length
     ? await dbProducts.getProductsByHandles(context.recentProductHandles.slice(-4))
     : [];
+  const pageHandle = context.pageContext?.type === "product"
+    ? context.pageContext.handle
+    : undefined;
   const enriched = enrichSizeAvailabilityWithContext({
     query: input.query,
-    handleOrId: input.handle_or_id,
+    handleOrId: input.handle_or_id ?? pageHandle,
     recentProducts,
   });
 

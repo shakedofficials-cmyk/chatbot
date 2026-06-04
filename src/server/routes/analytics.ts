@@ -1,6 +1,9 @@
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { logEvent } from "../services/analytics/index.js";
+import { summarizeAnalyticsEvents } from "../services/analytics/summary.js";
+import { prisma } from "../db/client.js";
+import { env } from "../config.js";
 
 const router = Router();
 
@@ -24,6 +27,34 @@ router.post("/event", async (req: Request, res: Response) => {
   } catch (err) {
     console.error("Analytics error:", err);
     res.status(500).json({ error: "Failed to log event" });
+  }
+});
+
+router.get("/summary", async (req: Request, res: Response) => {
+  try {
+    const providedSecret = req.header("x-analytics-secret") ?? String(req.query.secret ?? "");
+    if (!env.ANALYTICS_SECRET || providedSecret !== env.ANALYTICS_SECRET) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    const days = Math.max(1, Math.min(Number(req.query.days ?? 30) || 30, 365));
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const events = await prisma.analyticsEvent.findMany({
+      where: { createdAt: { gte: since } },
+      select: { name: true, payload: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+      take: 5000,
+    });
+
+    res.json({
+      days,
+      since: since.toISOString(),
+      ...summarizeAnalyticsEvents(events),
+    });
+  } catch (err) {
+    console.error("Analytics summary error:", err);
+    res.status(500).json({ error: "Failed to load analytics summary" });
   }
 });
 

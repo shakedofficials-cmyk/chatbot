@@ -1,4 +1,6 @@
-import type { CartAction, ChatResponse, Product, ProductComparison } from "../shared/types";
+import type { CartAction, ChatAction, ChatResponse, PageContext, Product, ProductComparison, ProductInsight } from "../shared/types";
+import { buildGuidedSearchPrompt, GUIDED_STEPS, type GuidedAnswers } from "./guided-flow";
+import { detectPageContextFromUrl, nudgeCopyForPageContext } from "./page-context";
 
 // Window.__ORJN_CONFIG__ is declared in vite-env.d.ts — no re-declaration needed here.
 
@@ -7,6 +9,9 @@ type Role = "user" | "assistant";
 interface WidgetConfig {
   apiBaseUrl: string;
   shopDomain?: string;
+  whatsappNumber?: string;
+  whatsappEnabled: boolean;
+  nudgeEnabled: boolean;
 }
 
 interface ShopifyThemeProduct {
@@ -31,6 +36,9 @@ function getConfig(): WidgetConfig {
   return {
     apiBaseUrl: configuredApiUrl.replace(/\/+$/, ""),
     shopDomain: runtimeConfig?.shopDomain,
+    whatsappNumber: runtimeConfig?.whatsappNumber,
+    whatsappEnabled: runtimeConfig?.whatsappEnabled !== false,
+    nudgeEnabled: runtimeConfig?.nudgeEnabled !== false,
   };
 }
 
@@ -363,6 +371,56 @@ function ensureStyles(): void {
       background: rgba(198, 255, 46, 0.04);
     }
 
+    .orjn-guide {
+      padding: 12px;
+      border: 1px solid var(--orjn-border);
+      background: var(--orjn-bg-elevated);
+    }
+
+    .orjn-guide-label {
+      margin-bottom: 8px;
+      color: var(--orjn-text-muted);
+      font-size: 8px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      font-family: 'Inter', monospace;
+    }
+
+    .orjn-guide-title {
+      margin: 0 0 10px;
+      color: var(--orjn-text);
+      font-family: 'Jost', sans-serif;
+      font-size: 18px;
+      line-height: 1;
+      text-transform: uppercase;
+    }
+
+    .orjn-guide-options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .orjn-guide-btn {
+      padding: 8px 10px;
+      border: 1px solid var(--orjn-border);
+      background: transparent;
+      color: var(--orjn-text);
+      cursor: pointer;
+      font-family: 'Inter', monospace;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .orjn-guide-btn:hover,
+    .orjn-guide-btn:focus-visible {
+      border-color: var(--orjn-volt);
+      color: var(--orjn-volt);
+      outline: none;
+    }
+
     /* ─── MESSAGE BUBBLES ───────────────────────────────── */
     .orjn-msg {
       max-width: 88%;
@@ -484,6 +542,24 @@ function ensureStyles(): void {
       text-transform: uppercase;
     }
 
+    .orjn-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 7px;
+    }
+
+    .orjn-badge {
+      padding: 3px 5px;
+      border: 1px solid rgba(198, 255, 46, 0.35);
+      color: var(--orjn-volt);
+      font-size: 7px;
+      line-height: 1.2;
+      font-family: 'Inter', monospace;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
     /* ─── BUTTONS ───────────────────────────────────────── */
     .orjn-product-btn,
     .orjn-checkout-btn,
@@ -597,6 +673,33 @@ function ensureStyles(): void {
 
     .orjn-checkout-btn:hover {
       background: #d4ff50;
+    }
+
+    .orjn-action-btn {
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+      padding: 13px 14px;
+      border: 1px solid var(--orjn-border-strong);
+      background: var(--orjn-bg-elevated);
+      color: var(--orjn-text);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      text-align: center;
+      text-decoration: none;
+      font-family: 'Inter', monospace;
+    }
+
+    .orjn-action-btn.whatsapp {
+      border-color: rgba(198, 255, 46, 0.45);
+      color: var(--orjn-volt);
+    }
+
+    .orjn-action-btn:hover {
+      border-color: var(--orjn-volt);
+      color: var(--orjn-volt);
     }
 
     /* ─── COMPARISON TABLE ──────────────────────────────── */
@@ -979,6 +1082,7 @@ const QUICK_QUERIES = [
 class ORJNConciergeWidget {
   private readonly config = getConfig();
   private readonly sessionId = createSessionId();
+  private readonly pageContext: PageContext = detectPageContextFromUrl(window.location.href);
 
   private cartId: string | null = null;
   private lastMessage = "";
@@ -986,6 +1090,9 @@ class ORJNConciergeWidget {
   private lastSubmittedAt = 0;
   private isLoading = false;
   private hasLoggedOpen = false;
+  private guidedAnswers: GuidedAnswers = {};
+  private guidedStepIndex = 0;
+  private guidedEl: HTMLDivElement | null = null;
 
   private readonly shell: HTMLDivElement;
   private readonly launcherNudge: HTMLDivElement;
@@ -1009,13 +1116,15 @@ class ORJNConciergeWidget {
 
     this.launcherNudge = document.createElement("div");
     this.launcherNudge.className = "orjn-launcher-nudge";
+    if (!this.config.nudgeEnabled) this.launcherNudge.classList.add("hidden");
 
     const nudgeMain = createButton("", "orjn-nudge-main", () => this.openChat());
     nudgeMain.setAttribute("aria-label", "Open ORJN chat");
+    const nudgeCopy = nudgeCopyForPageContext(this.pageContext);
     const nudgeTitle = document.createElement("strong");
-    nudgeTitle.textContent = "Ask ORJN";
+    nudgeTitle.textContent = nudgeCopy.title;
     const nudgeText = document.createElement("span");
-    nudgeText.textContent = "Find your size, color, or pair faster.";
+    nudgeText.textContent = nudgeCopy.text;
     nudgeMain.append(nudgeTitle, nudgeText);
 
     const nudgeClose = createButton("x", "orjn-nudge-close", () => this.hideLauncherNudge());
@@ -1075,6 +1184,8 @@ class ORJNConciergeWidget {
 
     const chips = document.createElement("div");
     chips.className = "orjn-chips";
+    const guideChip = createButton("FIND MY PAIR", "orjn-chip", () => this.startGuidedFlow());
+    chips.appendChild(guideChip);
     QUICK_QUERIES.forEach(({ label, query }) => {
       const chip = createButton(label, "orjn-chip", () => {
         this.input.value = query;
@@ -1483,7 +1594,7 @@ class ORJNConciergeWidget {
     return message;
   }
 
-  private renderProduct(product: Product): HTMLElement {
+  private renderProduct(product: Product, insight?: ProductInsight): HTMLElement {
     const card = document.createElement("article");
     card.className = "orjn-product";
     card.tabIndex = 0;
@@ -1492,6 +1603,13 @@ class ORJNConciergeWidget {
 
     const openProductPage = () => {
       void this.logAnalytics("product_clicked", { productHandle: product.handle, source: "product_card" });
+      if (insight) {
+        void this.logAnalytics("recommendation_clicked", {
+          productHandle: product.handle,
+          badges: insight.badges,
+          reason: insight.reason,
+        });
+      }
       window.open(this.buildProductVariantUrl(product), "_blank", "noopener,noreferrer");
     };
 
@@ -1532,6 +1650,18 @@ class ORJNConciergeWidget {
     const compareAtPrice =
       product.variants.find((v) => v.compareAtPrice)?.compareAtPrice ?? null;
     info.append(vendor, titleEl, renderPrice(product.priceRange.minVariantPrice, compareAtPrice));
+
+    if (insight?.badges.length) {
+      const badges = document.createElement("div");
+      badges.className = "orjn-badges";
+      insight.badges.forEach((badge) => {
+        const badgeEl = document.createElement("span");
+        badgeEl.className = "orjn-badge";
+        badgeEl.textContent = badge;
+        badges.appendChild(badgeEl);
+      });
+      info.appendChild(badges);
+    }
 
     const inStockSizes = product.variants
       .filter((v) => v.availableForSale)
@@ -1650,8 +1780,10 @@ class ORJNConciergeWidget {
   private appendAssistantPayload(
     text: string,
     products?: Product[],
+    productInsights?: ProductInsight[],
     comparison?: ProductComparison,
     cartAction?: CartAction,
+    actions?: ChatAction[],
     viewAllUrl?: string
   ): void {
     const msgEl = this.appendTextMessage("assistant", text);
@@ -1659,7 +1791,8 @@ class ORJNConciergeWidget {
     if (products && products.length > 0) {
       const stack = document.createElement("div");
       stack.className = "orjn-stack";
-      products.slice(0, 5).forEach((p) => stack.appendChild(this.renderProduct(p)));
+      const insightByHandle = new Map((productInsights ?? []).map((entry) => [entry.handle, entry]));
+      products.slice(0, 5).forEach((p) => stack.appendChild(this.renderProduct(p, insightByHandle.get(p.handle))));
 
       if (viewAllUrl) {
         const viewAll = document.createElement("a");
@@ -1688,6 +1821,34 @@ class ORJNConciergeWidget {
       this.messages.appendChild(link);
     }
 
+    if (actions && actions.length > 0 && this.config.whatsappEnabled) {
+      const stack = document.createElement("div");
+      stack.className = "orjn-stack";
+      actions.forEach((action) => {
+        const link = document.createElement("a");
+        link.className = `orjn-action-btn ${action.type}`;
+        link.href = action.url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = action.label;
+        link.addEventListener("click", () => {
+          void this.logAnalytics(action.type === "whatsapp" ? "whatsapp_clicked" : "fallback_triggered", {
+            label: action.label,
+            pageContext: this.pageContext,
+            hasCart: Boolean(this.cartId),
+          });
+          if (this.cartId) {
+            void this.logAnalytics("cart_recovery_clicked", {
+              label: action.label,
+              pageContext: this.pageContext,
+            });
+          }
+        });
+        stack.appendChild(link);
+      });
+      this.messages.appendChild(stack);
+    }
+
     // Scroll to the top of the new assistant message, not the bottom of the product cards
     msgEl.scrollIntoView({ behavior: "smooth", block: "start" });
   }
@@ -1705,6 +1866,62 @@ class ORJNConciergeWidget {
     return typing;
   }
 
+  private startGuidedFlow(): void {
+    if (this.isLoading) return;
+    this.hideEmptyState();
+    this.guidedAnswers = {};
+    this.guidedStepIndex = 0;
+    void this.logAnalytics("guided_flow_started", { pageContext: this.pageContext });
+    this.renderGuidedStep();
+  }
+
+  private renderGuidedStep(): void {
+    const step = GUIDED_STEPS[this.guidedStepIndex];
+    if (!step) {
+      const query = buildGuidedSearchPrompt(this.guidedAnswers);
+      void this.logAnalytics("guided_flow_completed", {
+        answers: this.guidedAnswers,
+        query,
+        pageContext: this.pageContext,
+      });
+      if (this.guidedEl) {
+        this.guidedEl.remove();
+        this.guidedEl = null;
+      }
+      void this.submitText(query);
+      return;
+    }
+
+    if (!this.guidedEl) {
+      this.guidedEl = document.createElement("div");
+      this.guidedEl.className = "orjn-guide";
+      this.messages.appendChild(this.guidedEl);
+    }
+
+    this.guidedEl.replaceChildren();
+    const label = document.createElement("div");
+    label.className = "orjn-guide-label";
+    label.textContent = `Step ${this.guidedStepIndex + 1}/${GUIDED_STEPS.length}`;
+
+    const title = document.createElement("h3");
+    title.className = "orjn-guide-title";
+    title.textContent = step.title;
+
+    const options = document.createElement("div");
+    options.className = "orjn-guide-options";
+    for (const option of step.options) {
+      const btn = createButton(option.label, "orjn-guide-btn", () => {
+        this.guidedAnswers[step.key] = option.value;
+        this.guidedStepIndex += 1;
+        this.renderGuidedStep();
+      });
+      options.appendChild(btn);
+    }
+
+    this.guidedEl.append(label, title, options);
+    this.guidedEl.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   private async retryLast(): Promise<void> {
     if (!this.lastMessage || this.isLoading) return;
     this.input.value = this.lastMessage;
@@ -1715,6 +1932,10 @@ class ORJNConciergeWidget {
 
   private async sendMessage(): Promise<void> {
     const text = this.input.value.trim();
+    await this.submitText(text);
+  }
+
+  private async submitText(text: string): Promise<void> {
     if (!text || this.isLoading) return;
 
     const now = Date.now();
@@ -1735,12 +1956,13 @@ class ORJNConciergeWidget {
     const typing = this.showTyping();
 
     try {
-      const body: Record<string, string> = {
+      const body = {
         sessionId: this.sessionId,
         message: text,
+        pageContext: this.pageContext,
+        cartId: this.cartId ?? undefined,
+        whatsappNumber: this.config.whatsappEnabled ? this.config.whatsappNumber : undefined,
       };
-
-      if (this.cartId) body.cartId = this.cartId;
 
       const response = await fetch(`${this.config.apiBaseUrl}/api/chat`, {
         method: "POST",
@@ -1762,8 +1984,10 @@ class ORJNConciergeWidget {
       this.appendAssistantPayload(
         payload.message.content,
         payload.message.products,
+        payload.message.productInsights,
         payload.message.comparison,
         payload.message.cartAction,
+        payload.message.actions,
         payload.message.viewAllUrl
       );
     } catch (error) {

@@ -9,7 +9,10 @@
 <script>
   window.__ORJN_CONFIG__ = {
     apiUrl: {{ block.settings.api_url | json }},
-    shopDomain: {{ shop.domain | json }}
+    shopDomain: {{ shop.domain | json }},
+    whatsappNumber: {{ block.settings.whatsapp_number | json }},
+    whatsappEnabled: {{ block.settings.whatsapp_enabled | json }},
+    nudgeEnabled: {{ block.settings.nudge_enabled | json }}
   };
 </script>
 
@@ -33,6 +36,25 @@
       "label": "Widget JS URL",
       "info": "The URL of the compiled widget JavaScript file",
       "default": "https://chatbot-production-e827.up.railway.app/orjn-concierge.js"
+    },
+    {
+      "type": "text",
+      "id": "whatsapp_number",
+      "label": "WhatsApp number",
+      "info": "International format without spaces, e.g. 96170123456",
+      "default": ""
+    },
+    {
+      "type": "checkbox",
+      "id": "whatsapp_enabled",
+      "label": "Show WhatsApp actions",
+      "default": true
+    },
+    {
+      "type": "checkbox",
+      "id": "nudge_enabled",
+      "label": "Show chat attention prompt",
+      "default": true
     }
   ]
 }

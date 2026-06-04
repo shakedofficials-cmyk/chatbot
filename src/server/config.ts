@@ -39,6 +39,8 @@ const envSchema = z.object({
   SYNC_STALE_AFTER_HOURS: z.coerce.number().default(24),
   SHOPIFY_ADMIN_ACCESS_TOKEN: z.string().default(""),
   SHOPIFY_WEBHOOK_SECRET: z.string().default(""),
+  WHATSAPP_NUMBER: z.string().default(""),
+  ANALYTICS_SECRET: z.string().default(""),
 });
 
 export const env = envSchema.parse(process.env);

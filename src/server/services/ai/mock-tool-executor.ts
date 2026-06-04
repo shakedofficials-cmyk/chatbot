@@ -1,4 +1,4 @@
-import type { Product, ProductComparison, Cart, SearchFilters } from "../../../shared/types.js";
+import type { Cart, PageContext, Product, ProductComparison, SearchFilters } from "../../../shared/types.js";
 import { MOCK_PRODUCTS } from "../shopify/mock-data.js";
 import { answerPolicyQuestion } from "../knowledge/index.js";
 import { logEvent } from "../analytics/index.js";
@@ -21,6 +21,7 @@ export async function executeMockTool(
     recentProductHandles?: string[];
     preferences?: Record<string, unknown>;
     deterministicFilters?: SearchFilters;
+    pageContext?: PageContext;
   } = {}
 ): Promise<ToolResult> {
   switch (toolName) {

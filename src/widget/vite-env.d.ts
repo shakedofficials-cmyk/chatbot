@@ -12,5 +12,8 @@ interface Window {
   __ORJN_CONFIG__?: {
     apiUrl?: string;
     shopDomain?: string;
+    whatsappNumber?: string;
+    whatsappEnabled?: boolean;
+    nudgeEnabled?: boolean;
   };
 }

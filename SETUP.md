@@ -80,6 +80,8 @@ postgresql://user:password@host:5432/database_name
    SYNC_INTERVAL_MINUTES=0
    SYNC_SECRET=your-sync-secret
    RETRIEVAL_DEBUG_SECRET=your-debug-secret
+   ANALYTICS_SECRET=your-analytics-secret
+   WHATSAPP_NUMBER=96170123456
    ```
 3. Install dependencies: `npm install`
 4. Apply database migrations: `npx prisma migrate deploy`
@@ -188,6 +190,8 @@ These show up automatically in product cards and comparisons.
 | `SYNC_INTERVAL_MINUTES` | No | Optional extra catalog resync interval in minutes. `0` disables interval sync |
 | `SYNC_SECRET` | Yes | Secret for `POST /api/sync` and production sync status requests |
 | `RETRIEVAL_DEBUG_SECRET` | No | Secret for `POST /api/retrieval/debug`; falls back to `SYNC_SECRET` if omitted |
+| `ANALYTICS_SECRET` | Yes for summary endpoint | Secret for `GET /api/analytics/summary` |
+| `WHATSAPP_NUMBER` | No | WhatsApp click-to-chat number in international format. The Shopify app embed setting can also provide this |
 | `VITE_API_URL` | No | API URL for local dev widget |
 
 ---
