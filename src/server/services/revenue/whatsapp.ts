@@ -30,8 +30,8 @@ export function buildWhatsAppUrl(number: string, message: string): string | null
   return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
 }
 
-function asksForHuman(message: string): boolean {
-  return /\b(whatsapp|contact|support|help|human|person|call|dm|message you|talk)\b/i.test(message);
+export function isHumanHandoffRequest(message: string): boolean {
+  return /\b(whatsapp|contact|support|help|human|person|agent|representative|staff|team|someone|call|dm|message you|talk|customer service|live chat|real person)\b/i.test(message);
 }
 
 function isHesitating(message: string): boolean {
@@ -64,8 +64,9 @@ export function buildWhatsAppActions(input: WhatsAppActionInput): ChatAction[] {
 
   const noResults = input.products.length === 0;
   const sizeMiss = !hasExactRequestedSize(input.products, input.filters.size);
+  const humanRequest = isHumanHandoffRequest(input.userMessage);
   const shouldShow =
-    asksForHuman(input.userMessage) ||
+    humanRequest ||
     isHesitating(input.userMessage) ||
     input.hasComparison ||
     noResults ||
@@ -77,7 +78,9 @@ export function buildWhatsAppActions(input: WhatsAppActionInput): ChatAction[] {
   const url = buildWhatsAppUrl(input.whatsappNumber, compactContext(input));
   if (!url) return [];
 
-  const label = noResults || sizeMiss
+  const label = humanRequest
+    ? "Chat on WhatsApp"
+    : noResults || sizeMiss
     ? "Ask ORJN on WhatsApp"
     : input.cartId
       ? "Finish on WhatsApp"

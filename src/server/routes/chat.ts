@@ -10,7 +10,7 @@ import { understandCatalogQuery } from "../services/retrieval/query-understandin
 import { buildFilteredSearchUrl } from "../services/shopify/search-url.js";
 import { searchPublicFilteredProducts } from "../services/shopify/public-search.js";
 import { rankProductsForRevenue } from "../services/revenue/recommendations.js";
-import { buildWhatsAppActions } from "../services/revenue/whatsapp.js";
+import { buildWhatsAppActions, isHumanHandoffRequest } from "../services/revenue/whatsapp.js";
 import { searchProducts as searchCatalogProducts } from "../services/products/db-products.js";
 import type { ChatMessage, PageContext, Product, SearchFilters, ShopperPreferences } from "../../shared/types.js";
 
@@ -94,6 +94,49 @@ router.post("/", async (req: Request, res: Response) => {
       await logEvent(sessionId, "first_message_sent", {});
     }
 
+    const configuredWhatsAppNumber = env.WHATSAPP_NUMBER || whatsappNumber || "";
+
+    if (isHumanHandoffRequest(message)) {
+      const actions = buildWhatsAppActions({
+        whatsappNumber: configuredWhatsAppNumber,
+        userMessage: message,
+        products: [],
+        filters: {},
+        pageContext: pageContext as PageContext | undefined,
+        cartId,
+        intent: "policy_support",
+      });
+      const content = actions.length > 0
+        ? "Tap WhatsApp. ORJN will pick it up there."
+        : "Use Contact in the menu and the ORJN team will help.";
+      const responseMessage: ChatMessage = {
+        id: nanoid(),
+        role: "assistant",
+        content,
+        actions: actions.length > 0 ? actions : undefined,
+        timestamp: Date.now(),
+      };
+      const updatedHistory = [
+        ...session.conversationHistory,
+        { role: "user" as const, content: message },
+        { role: "assistant" as const, content },
+      ];
+
+      await updateSession(sessionId, {
+        cartId: cartId ?? session.cartId ?? undefined,
+        conversationHistory: trimHistory(updatedHistory),
+        recentProducts: session.recentProducts,
+        preferences: session.preferences,
+      });
+
+      res.json({
+        sessionId,
+        message: responseMessage,
+        cartId,
+      });
+      return;
+    }
+
     const runOrchestrate = pickOrchestrator();
     const understanding = await understandCatalogQuery(message, { useAi: aiProvider === "openai" });
     const result = await runOrchestrate(
@@ -144,7 +187,7 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     const actions = buildWhatsAppActions({
-      whatsappNumber: env.WHATSAPP_NUMBER || whatsappNumber || "",
+      whatsappNumber: configuredWhatsAppNumber,
       userMessage: message,
       products,
       productInsights,

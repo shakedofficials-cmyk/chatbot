@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Product } from "../../../shared/types.js";
-import { buildWhatsAppActions, buildWhatsAppUrl } from "./whatsapp.js";
+import { buildWhatsAppActions, buildWhatsAppUrl, isHumanHandoffRequest } from "./whatsapp.js";
 
 const product: Product = {
   id: "p1",
@@ -50,5 +50,19 @@ describe("WhatsApp revenue actions", () => {
     expect(actions).toHaveLength(1);
     expect(actions[0].label).toBe("Ask ORJN on WhatsApp");
     expect(actions[0].url).toContain("nike-air-force-1");
+  });
+
+  it("recognizes agent handoff requests", () => {
+    const actions = buildWhatsAppActions({
+      whatsappNumber: "96170123456",
+      userMessage: "connect me to an agent",
+      products: [],
+      filters: {},
+      intent: "policy_support",
+    });
+
+    expect(isHumanHandoffRequest("connect me to an agent")).toBe(true);
+    expect(actions).toHaveLength(1);
+    expect(actions[0].label).toBe("Chat on WhatsApp");
   });
 });
