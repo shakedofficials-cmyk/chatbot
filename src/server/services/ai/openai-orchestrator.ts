@@ -5,7 +5,7 @@ import { executeTool, type ToolResult } from "./tool-executor.js";
 import { executeMockTool } from "./mock-tool-executor.js";
 import { usesMockShopify } from "../../config.js";
 import * as dbProducts from "../products/db-products.js";
-import type { Product, ProductComparison, CartAction, ShopperPreferences } from "../../../shared/types.js";
+import type { Product, ProductComparison, CartAction, SearchFilters, ShopperPreferences } from "../../../shared/types.js";
 
 const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
 
@@ -35,6 +35,7 @@ PRODUCT RULES — NON-NEGOTIABLE:
 - NEVER fabricate or guess product names, prices, sizes, stock, or availability. Use tools every time.
 - When someone asks about a product, ALWAYS call search_products or get_product first.
 - Specific discovery requests like "I want a blue Air Force 1 size 44" mean SEARCH, not cart. Call search_products with model/silhouette, color, size, and in_stock true so the cards show every matching product.
+- Category/type discovery requests like "lifestyle", "running shoes", "basketball size 44", or "lifestyle size 44" are hard filters. Call search_products with type/category set exactly to that category and in_stock true when a size is present. Do not substitute Running for Lifestyle, Lifestyle for Running, or any other category.
 - "What sizes do you have?" or "what's available?" → call get_size_availability with handle_or_id only (no size). Returns full size matrix. If no handle is known, call search_products first to find the specific product, then use that handle.
 - "Do you have size 44?" → call get_size_availability with both handle_or_id and size.
 - For a specific size/color combination before adding to cart → call get_variant_by_options.
@@ -91,6 +92,7 @@ interface OrchestratorResult {
 interface OrchestratorContext {
   recentProductHandles?: string[];
   preferences?: Record<string, unknown>;
+  deterministicFilters?: SearchFilters;
 }
 
 const CART_SIDE_EFFECT_TOOLS = new Set([

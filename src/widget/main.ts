@@ -322,14 +322,17 @@ function ensureStyles(): void {
       overflow: hidden;
       background: var(--orjn-bg-elevated);
       transition: border-color 120ms ease;
+      cursor: pointer;
     }
 
     .orjn-product.no-image {
       grid-template-columns: 1fr;
     }
 
-    .orjn-product:hover {
+    .orjn-product:hover,
+    .orjn-product:focus-visible {
       border-color: rgba(255,255,255,0.2);
+      outline: none;
     }
 
     .orjn-product img {
@@ -1372,6 +1375,27 @@ class ORJNConciergeWidget {
   private renderProduct(product: Product): HTMLElement {
     const card = document.createElement("article");
     card.className = "orjn-product";
+    card.tabIndex = 0;
+    card.setAttribute("role", "link");
+    card.setAttribute("aria-label", `Open ${product.title}`);
+
+    const openProductPage = () => {
+      void this.logAnalytics("product_clicked", { productHandle: product.handle, source: "product_card" });
+      window.open(this.buildProductVariantUrl(product), "_blank", "noopener,noreferrer");
+    };
+
+    card.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("button, a, .orjn-size-grid")) return;
+      openProductPage();
+    });
+
+    card.addEventListener("keydown", (event) => {
+      if (event.target !== card) return;
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      openProductPage();
+    });
 
     if (product.images[0]) {
       const img = document.createElement("img");

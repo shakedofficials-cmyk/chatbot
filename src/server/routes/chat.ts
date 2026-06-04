@@ -65,6 +65,7 @@ router.post("/", async (req: Request, res: Response) => {
       {
         recentProductHandles: session.recentProducts.slice(-4),
         preferences: session.preferences,
+        deterministicFilters: understanding.filters,
       }
     );
 
@@ -78,7 +79,8 @@ router.post("/", async (req: Request, res: Response) => {
       understanding.entities.category ??
       understanding.normalizedQuery;
     const searchTerm = rawSearchTerm
-      .replace(/^(show\s+me|i\s+want|find\s+me|get\s+me|i\s+need|look\s+for|search\s+for|give\s+me)\s+/i, "")
+      .replace(/^(show\s+me|show|i\s+want|want|find\s+me|find|get\s+me|get|i\s+need|need|look\s+for|looking\s+for|search\s+for|search|give\s+me|give)\s+/i, "")
+      .replace(/\b(?:size|eu)\s*\d{1,2}(?:\.\d)?\b/gi, "")
       .replace(/\s+(options|shoes|sneakers|pairs|products|items)$/i, "")
       .trim() || rawSearchTerm;
     const responseMessage: ChatMessage = {

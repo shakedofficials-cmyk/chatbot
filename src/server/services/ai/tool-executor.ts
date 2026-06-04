@@ -3,6 +3,7 @@ import * as shopify from "../shopify/storefront.js";
 import * as dbProducts from "../products/db-products.js";
 import { searchPublicFilteredProducts } from "../shopify/public-search.js";
 import { hasLiveShopifyStore } from "../../config.js";
+import { normalizeText } from "../retrieval/normalize.js";
 import {
   localCartCreate,
   localCartAddLines,
@@ -32,6 +33,7 @@ export interface ToolResult {
 export interface ToolExecutionContext {
   recentProductHandles?: string[];
   preferences?: Record<string, unknown>;
+  deterministicFilters?: SearchFilters;
 }
 
 export async function executeTool(
@@ -40,6 +42,18 @@ export async function executeTool(
   sessionId: string,
   context: ToolExecutionContext = {}
 ): Promise<ToolResult> {
+  if (toolName === "get_size_availability" && shouldRouteSizeLookupToSearch(input, context.deterministicFilters)) {
+    return handleSearchProducts(
+      {
+        query: input.query ?? buildQueryFromFilters(context.deterministicFilters) ?? "",
+        size: input.size ?? context.deterministicFilters?.size,
+        in_stock: true,
+      },
+      sessionId,
+      context
+    );
+  }
+
   switch (toolName) {
     case "search_products":
       return handleSearchProducts(input, sessionId, context);
@@ -75,12 +89,82 @@ export async function executeTool(
   }
 }
 
+const HARD_CATEGORY_FILTERS = new Set([
+  "basketball",
+  "lifestyle",
+  "running",
+  "training",
+]);
+
+function canonicalCategory(value: string | undefined): string | undefined {
+  const normalized = normalizeText(value);
+  if (!normalized) return undefined;
+  if (normalized === "basket" || normalized.includes("basketball")) return "basketball";
+  if (normalized.includes("lifestyle")) return "lifestyle";
+  if (normalized.includes("running") || normalized === "runner") return "running";
+  if (normalized.includes("training")) return "training";
+  return normalized;
+}
+
+function shouldRouteSizeLookupToSearch(
+  input: Record<string, any>,
+  deterministicFilters: SearchFilters | undefined
+): boolean {
+  if (input.handle_or_id || !input.size) return false;
+
+  return Boolean(
+    deterministicFilters?.category ||
+      deterministicFilters?.productType ||
+      deterministicFilters?.model ||
+      deterministicFilters?.silhouette ||
+      deterministicFilters?.brand ||
+      deterministicFilters?.color
+  );
+}
+
+function buildQueryFromFilters(filters: SearchFilters | undefined): string | undefined {
+  if (!filters) return undefined;
+  return [
+    filters.brand,
+    filters.silhouette ?? filters.model,
+    filters.category ?? filters.productType,
+    filters.color,
+  ].filter(Boolean).join(" ");
+}
+
+function applyDeterministicSearchFilters(
+  filters: SearchFilters,
+  deterministicFilters: SearchFilters | undefined
+): SearchFilters {
+  if (!deterministicFilters) return filters;
+
+  const next: SearchFilters = { ...filters };
+  const category = canonicalCategory(deterministicFilters.category ?? deterministicFilters.productType);
+
+  if (category && HARD_CATEGORY_FILTERS.has(category)) {
+    next.category = category;
+    next.productType = category;
+  }
+
+  if (deterministicFilters.brand) next.brand = deterministicFilters.brand;
+  if (deterministicFilters.color) next.color = deterministicFilters.color;
+  if (deterministicFilters.size) next.size = deterministicFilters.size;
+  if (deterministicFilters.gender) next.gender = deterministicFilters.gender;
+  if (deterministicFilters.minPrice != null) next.minPrice = deterministicFilters.minPrice;
+  if (deterministicFilters.maxPrice != null) next.maxPrice = deterministicFilters.maxPrice;
+  if (deterministicFilters.inStock) next.inStock = true;
+  if (deterministicFilters.silhouette && !next.silhouette) next.silhouette = deterministicFilters.silhouette;
+  if (deterministicFilters.model && !next.model) next.model = deterministicFilters.model;
+
+  return next;
+}
+
 async function handleSearchProducts(
   input: Record<string, any>,
   sessionId: string,
   context: ToolExecutionContext
 ): Promise<ToolResult> {
-  const filters: SearchFilters = {
+  const filters = applyDeterministicSearchFilters({
     brand: input.brand,
     model: input.model,
     minPrice: input.min_price,
@@ -92,17 +176,21 @@ async function handleSearchProducts(
     gender: input.gender,
     inStock: input.in_stock,
     tags: input.tags,
-  };
+  }, context.deterministicFilters);
 
   const recentProducts = context.recentProductHandles?.length
     ? await dbProducts.getProductsByHandles(context.recentProductHandles.slice(-4))
     : [];
-  const enriched = enrichSearchWithContext({
+  const enrichedContext = enrichSearchWithContext({
     query: input.query,
     filters,
     recentProducts,
     preferences: (context.preferences ?? {}) as ShopperPreferences,
   });
+  const enriched = {
+    ...enrichedContext,
+    filters: applyDeterministicSearchFilters(enrichedContext.filters, context.deterministicFilters),
+  };
 
   let products = await dbProducts.searchProducts(enriched.query, enriched.filters, 8, sessionId);
 

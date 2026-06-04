@@ -1,4 +1,4 @@
-import type { Product, ProductComparison, CartAction, CartLine } from "../../../shared/types.js";
+import type { Product, ProductComparison, CartAction, CartLine, SearchFilters } from "../../../shared/types.js";
 import { MOCK_PRODUCTS } from "../shopify/mock-data.js";
 import { answerPolicyQuestion } from "../knowledge/index.js";
 import { logEvent } from "../analytics/index.js";
@@ -23,6 +23,7 @@ export async function devOrchestrate(
   _context: {
     recentProductHandles?: string[];
     preferences?: Record<string, unknown>;
+    deterministicFilters?: SearchFilters;
   } = {}
 ): Promise<OrchestratorResult> {
   const msg = userMessage.toLowerCase();

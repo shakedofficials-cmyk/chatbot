@@ -19,11 +19,6 @@ function toFilterValue(value: string): string {
     .join(" ");
 }
 
-function appendTag(url: URL, tag: string | undefined): void {
-  if (!tag) return;
-  url.searchParams.append("filter.p.tag", normalizeText(tag));
-}
-
 function inferProductType(products: Product[]): string | undefined {
   return products.find((product) => {
     const productType = normalizeText(product.productType);
@@ -112,7 +107,6 @@ export function buildFilteredSearchUrl(
   const category = categoryKey(categorySource);
   if (category && !GENERIC_CATEGORIES.has(category)) {
     url.searchParams.set("filter.p.product_type", toFilterValue(categorySource ?? category));
-    appendTag(url, category);
   }
 
   if (effectiveFilters.brand) {
@@ -124,9 +118,13 @@ export function buildFilteredSearchUrl(
     url.searchParams.set(`filter.p.m.custom.${typeFilterKey(category)}`, toFilterValue(typeMetafield));
   }
 
-  appendTag(url, effectiveFilters.gender);
-  if (effectiveFilters.tags && effectiveFilters.tags !== effectiveFilters.gender) {
-    appendTag(url, effectiveFilters.tags);
+  const gender = effectiveFilters.gender ?? (
+    effectiveFilters.tags && ["men", "women"].includes(normalizeText(effectiveFilters.tags))
+      ? effectiveFilters.tags
+      : undefined
+  );
+  if (gender) {
+    url.searchParams.set("filter.p.m.custom.gender", toFilterValue(gender));
   }
 
   return url.toString();

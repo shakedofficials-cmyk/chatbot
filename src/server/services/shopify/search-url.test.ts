@@ -61,4 +61,16 @@ describe("buildFilteredSearchUrl", () => {
     expect(url.searchParams.has("filter.p.m.custom.lifestyle_type")).toBe(false);
     expect(url.searchParams.get("filter.v.option.size")).toBe("39");
   });
+
+  it("builds category-only lifestyle search links without command words", () => {
+    const url = new URL(
+      buildFilteredSearchUrl("lifestyle", { category: "lifestyle", size: "44", inStock: true })
+    );
+
+    expect(url.searchParams.get("q")).toBe("lifestyle");
+    expect(url.searchParams.get("filter.v.option.size")).toBe("44");
+    expect(url.searchParams.get("filter.p.product_type")).toBe("Lifestyle");
+    expect(url.searchParams.has("filter.p.tag")).toBe(false);
+    expect(url.searchParams.has("filter.p.m.custom.lifestyle_type")).toBe(false);
+  });
 });

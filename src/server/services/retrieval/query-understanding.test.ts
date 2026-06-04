@@ -41,6 +41,16 @@ describe("Query Understanding", () => {
     expect(result.entities.styleTerms).toEqual(expect.arrayContaining(["clean", "everyday"]));
   });
 
+  it("does not treat search command words as product models", async () => {
+    const { understandCatalogQuery } = await import("./query-understanding.js");
+
+    const result = await understandCatalogQuery("give me lifestyle size 44");
+
+    expect(result.filters.category).toBe("lifestyle");
+    expect(result.filters.size).toBe("44");
+    expect(result.filters.model).toBeUndefined();
+  });
+
   it("routes policy and authenticity questions away from product search", async () => {
     const { understandCatalogQuery } = await import("./query-understanding.js");
 
