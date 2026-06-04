@@ -72,9 +72,87 @@ function ensureStyles(): void {
       z-index: 2147483647;
       font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
       color: var(--orjn-text);
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 10px;
     }
 
     /* ─── LAUNCHER ─────────────────────────────────────── */
+    .orjn-launcher-nudge {
+      width: min(280px, calc(100vw - 32px));
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 12px 12px 12px 14px;
+      border: 1px solid var(--orjn-border-strong);
+      border-right: 2px solid var(--orjn-volt);
+      background: var(--orjn-bg-elevated);
+      color: var(--orjn-text);
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+      animation: orjn-nudge-enter 260ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .orjn-launcher-nudge.hidden {
+      display: none;
+    }
+
+    .orjn-nudge-main {
+      flex: 1;
+      min-width: 0;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      color: inherit;
+      text-align: left;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .orjn-nudge-main strong {
+      display: block;
+      margin-bottom: 3px;
+      font-family: 'Jost', sans-serif;
+      font-size: 13px;
+      line-height: 1;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .orjn-nudge-main span {
+      display: block;
+      color: var(--orjn-text-muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .orjn-nudge-main:hover strong,
+    .orjn-nudge-main:focus-visible strong {
+      color: var(--orjn-volt);
+      outline: none;
+    }
+
+    .orjn-nudge-close {
+      width: 22px;
+      height: 22px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--orjn-border);
+      background: transparent;
+      color: var(--orjn-text-muted);
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+    }
+
+    .orjn-nudge-close:hover,
+    .orjn-nudge-close:focus-visible {
+      color: var(--orjn-text);
+      border-color: var(--orjn-border-strong);
+      outline: none;
+    }
+
     #orjn-launcher {
       width: 60px;
       height: 60px;
@@ -736,6 +814,11 @@ function ensureStyles(): void {
       to   { opacity: 1; transform: translateY(0); }
     }
 
+    @keyframes orjn-nudge-enter {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
     /* ─── RESPONSIVE ────────────────────────────────────── */
     @media (max-width: 640px) {
       #orjn-concierge-shell { right: 12px; bottom: 12px; }
@@ -752,6 +835,13 @@ function ensureStyles(): void {
         position: fixed;
         right: 14px;
         bottom: 14px;
+      }
+
+      .orjn-launcher-nudge {
+        position: fixed;
+        right: 14px;
+        bottom: 86px;
+        width: min(280px, calc(100vw - 28px));
       }
 
       #orjn-panel.open {
@@ -880,10 +970,10 @@ function renderPrice(
 }
 
 const QUICK_QUERIES = [
-  { label: "LATEST DROPS", query: "What are the latest drops?" },
+  { label: "NEW ARRIVALS", query: "Show me new arrivals" },
   { label: "AIR FORCE 1", query: "Show me Air Force 1 options" },
-  { label: "JORDAN 1", query: "Show me Jordan 1 options" },
-  { label: "SHIPPING INFO", query: "What are your shipping policies?" },
+  { label: "SIZE 44", query: "Show me shoes in size 44" },
+  { label: "SHIPPING", query: "What is your shipping policy?" },
 ];
 
 class ORJNConciergeWidget {
@@ -898,6 +988,7 @@ class ORJNConciergeWidget {
   private hasLoggedOpen = false;
 
   private readonly shell: HTMLDivElement;
+  private readonly launcherNudge: HTMLDivElement;
   private readonly launcher: HTMLButtonElement;
   private readonly panel: HTMLDivElement;
   private readonly messages: HTMLDivElement;
@@ -915,6 +1006,21 @@ class ORJNConciergeWidget {
 
     this.shell = document.createElement("div");
     this.shell.id = "orjn-concierge-shell";
+
+    this.launcherNudge = document.createElement("div");
+    this.launcherNudge.className = "orjn-launcher-nudge";
+
+    const nudgeMain = createButton("", "orjn-nudge-main", () => this.openChat());
+    nudgeMain.setAttribute("aria-label", "Open ORJN chat");
+    const nudgeTitle = document.createElement("strong");
+    nudgeTitle.textContent = "Ask ORJN";
+    const nudgeText = document.createElement("span");
+    nudgeText.textContent = "Find your size, color, or pair faster.";
+    nudgeMain.append(nudgeTitle, nudgeText);
+
+    const nudgeClose = createButton("x", "orjn-nudge-close", () => this.hideLauncherNudge());
+    nudgeClose.setAttribute("aria-label", "Hide ORJN chat tip");
+    this.launcherNudge.append(nudgeMain, nudgeClose);
 
     // ── Launcher ──────────────────────────────────────────
     this.launcher = createButton("", "", () => this.openChat());
@@ -934,16 +1040,16 @@ class ORJNConciergeWidget {
     headerCopy.className = "orjn-header-copy";
 
     const eyebrow = document.createElement("p");
-    eyebrow.textContent = "SYS.DIR // CONCIERGE";
+    eyebrow.textContent = "ORJN CHAT";
 
     const title = document.createElement("h2");
-    title.textContent = "Drop Intelligence";
+    title.textContent = "Shop faster";
 
     const statusLine = document.createElement("div");
     statusLine.className = "orjn-header-status";
     const dot = document.createElement("span");
     dot.className = "orjn-status-dot";
-    statusLine.append(dot, "Network Live");
+    statusLine.append(dot, "Live stock");
 
     headerCopy.append(eyebrow, title, statusLine);
 
@@ -961,11 +1067,11 @@ class ORJNConciergeWidget {
     this.emptyState.className = "orjn-empty";
 
     const emptyTitle = document.createElement("strong");
-    emptyTitle.textContent = "Query the network.";
+    emptyTitle.textContent = "Tell us what you want.";
 
     const emptyBody = document.createElement("p");
     emptyBody.textContent =
-      "Drop intel, size availability, archive pricing, sourcing. Ask anything — we pull live catalog data, not guesses.";
+      "Ask for a shoe, size, color, or budget. We will show what is in stock and help you add it to cart.";
 
     const chips = document.createElement("div");
     chips.className = "orjn-chips";
@@ -1005,7 +1111,7 @@ class ORJNConciergeWidget {
     this.input = document.createElement("textarea");
     this.input.className = "orjn-input";
     this.input.rows = 1;
-    this.input.placeholder = "QUERY THE NETWORK...";
+    this.input.placeholder = "Ask for a shoe, size, color...";
     this.input.addEventListener("input", () => this.autoResizeInput());
     this.input.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
@@ -1022,7 +1128,7 @@ class ORJNConciergeWidget {
 
     inputArea.append(this.input, this.sendButton);
     this.panel.append(header, this.messages, this.errorBar, this.cartStatusBar, inputArea);
-    this.shell.append(this.launcher, this.panel);
+    this.shell.append(this.launcherNudge, this.launcher, this.panel);
     container.appendChild(this.shell);
 
     this.setupViewportHandler();
@@ -1325,7 +1431,12 @@ class ORJNConciergeWidget {
     }
   }
 
+  private hideLauncherNudge(): void {
+    this.launcherNudge.classList.add("hidden");
+  }
+
   private openChat(): void {
+    this.hideLauncherNudge();
     this.launcher.style.display = "none";
     this.panel.classList.add("open");
     this.input.focus();
