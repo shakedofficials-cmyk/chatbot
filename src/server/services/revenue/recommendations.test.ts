@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Product, ProductVariant } from "../../../shared/types.js";
-import { rankProductsForRevenue } from "./recommendations.js";
+import { productMatchesRequestedColor, rankProductsForRevenue } from "./recommendations.js";
 
 function variant(size: string, availableForSale = true, quantityAvailable = 4): ProductVariant {
   return {
@@ -84,5 +84,24 @@ describe("rankProductsForRevenue", () => {
     ], { size: "44" });
 
     expect(result.insights[0].badges).toContain("Low stock");
+  });
+
+  it("does not treat embedded letters as a color match", () => {
+    const predator = product({
+      handle: "predator-white",
+      title: "adidas Predator League FT FG",
+      productType: "Football",
+      variants: [variant("44")],
+    });
+    const redBoot = product({
+      handle: "predator-red",
+      title: "adidas Predator Club FG",
+      productType: "Football",
+      variants: [variant("44")],
+    });
+    redBoot.images = [{ url: "https://cdn.shopify.com/JS0349_Red_White.jpg", altText: null }];
+
+    expect(productMatchesRequestedColor(predator, "red")).toBe(false);
+    expect(productMatchesRequestedColor(redBoot, "red")).toBe(true);
   });
 });

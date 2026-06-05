@@ -266,9 +266,13 @@ export function extractColorTokens(product: Product): string[] {
     product.tags.join(" "),
     product.metafields.customColor,
     ...product.variants.flatMap((variant) => variant.selectedOptions.map((option) => option.value)),
+    ...product.images.flatMap((image) => [image.altText, image.url]),
   ]);
 
-  return DEFAULT_COLORS.filter((color) => source.includes(color));
+  return DEFAULT_COLORS.filter((color) => {
+    const escaped = color.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|[\\s_./-])${escaped}([\\s_./-]|$)`, "i").test(source);
+  });
 }
 
 export function extractStyleTokens(product: Product): string[] {

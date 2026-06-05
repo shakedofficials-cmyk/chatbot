@@ -9,7 +9,10 @@ import { aiProvider, env, hasLiveShopifyStore } from "../config.js";
 import { understandCatalogQuery } from "../services/retrieval/query-understanding.js";
 import { buildFilteredSearchUrl } from "../services/shopify/search-url.js";
 import { searchPublicFilteredProducts } from "../services/shopify/public-search.js";
-import { rankProductsForRevenue } from "../services/revenue/recommendations.js";
+import {
+  productMatchesRequestedColor,
+  rankProductsForRevenue,
+} from "../services/revenue/recommendations.js";
 import { buildWhatsAppActions, isHumanHandoffRequest } from "../services/revenue/whatsapp.js";
 import { searchProducts as searchCatalogProducts } from "../services/products/db-products.js";
 import type { ChatMessage, PageContext, Product, SearchFilters, ShopperPreferences } from "../../shared/types.js";
@@ -94,6 +97,10 @@ async function findClosestSizeAlternatives(
   }
 
   return products;
+}
+
+function applyStrictResultFilters(products: Product[], filters: SearchFilters): Product[] {
+  return products.filter((product) => productMatchesRequestedColor(product, filters.color));
 }
 
 router.post("/", async (req: Request, res: Response) => {
@@ -186,7 +193,10 @@ router.post("/", async (req: Request, res: Response) => {
       .replace(/\s+(options|shoes|sneakers|pairs|products|items)$/i, "")
       .trim() || rawSearchTerm;
 
-    let ranked = rankProductsForRevenue(result.products, understanding.filters);
+    let ranked = rankProductsForRevenue(
+      applyStrictResultFilters(result.products, understanding.filters),
+      understanding.filters
+    );
     let products = ranked.products;
     let productInsights = ranked.insights;
     let responseContent = result.reply;
@@ -196,7 +206,10 @@ router.post("/", async (req: Request, res: Response) => {
     if (products.length === 0 && understanding.filters.size) {
       const alternatives = await findClosestSizeAlternatives(searchTerm, understanding.filters, sessionId);
       if (alternatives.length > 0) {
-        ranked = rankProductsForRevenue(alternatives, understanding.filters);
+        ranked = rankProductsForRevenue(
+          applyStrictResultFilters(alternatives, understanding.filters),
+          understanding.filters
+        );
         products = ranked.products;
         productInsights = ranked.insights;
         responseContent = `I didn't find size ${understanding.filters.size} exactly. These are the closest in-stock options I found.`;

@@ -17,7 +17,7 @@ function titleCase(value: string): string {
 }
 
 function productHaystack(product: Product): string {
-  return normalizeText([
+  return [
     product.title,
     product.vendor,
     product.productType,
@@ -26,7 +26,20 @@ function productHaystack(product: Product): string {
     product.metafields.customColor,
     product.metafields.recommendedUse,
     product.metafields.styleTags?.join(" "),
-  ].filter(Boolean).join(" "));
+    ...product.variants.flatMap((variant) => variant.selectedOptions.map((option) => option.value)),
+    ...product.images.flatMap((image) => [image.altText, image.url]),
+  ].filter(Boolean).join(" ");
+}
+
+function includesTokenish(source: string, value: string): boolean {
+  const escaped = normalizeText(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (!escaped) return false;
+  return new RegExp(`(^|[\\s_./-])${escaped}([\\s_./-]|$)`, "i").test(normalizeText(source));
+}
+
+export function productMatchesRequestedColor(product: Product, color: string | undefined): boolean {
+  if (!color) return true;
+  return includesTokenish(productHaystack(product), color);
 }
 
 function categoryBadge(product: Product, filters: SearchFilters): { badge: string | null; score: number } {
@@ -72,8 +85,7 @@ function sizeBadge(product: Product, filters: SearchFilters): { badge: string | 
 
 function colorBadge(product: Product, filters: SearchFilters): { badge: string | null; score: number } {
   if (!filters.color) return { badge: null, score: 0 };
-  const color = normalizeText(filters.color);
-  return productHaystack(product).includes(color)
+  return productMatchesRequestedColor(product, filters.color)
     ? { badge: `${titleCase(filters.color)} match`, score: 35 }
     : { badge: null, score: -10 };
 }
