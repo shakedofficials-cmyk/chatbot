@@ -122,6 +122,19 @@ function applyStrictResultFilters(products: Product[], filters: SearchFilters): 
   return products.filter((product) => productMatchesRequestedColor(product, filters.color));
 }
 
+function mergeProductsByHandle(primary: Product[], supplemental: Product[]): Product[] {
+  const seen = new Set<string>();
+  const merged: Product[] = [];
+
+  for (const product of [...primary, ...supplemental]) {
+    if (seen.has(product.handle)) continue;
+    seen.add(product.handle);
+    merged.push(product);
+  }
+
+  return merged;
+}
+
 router.post("/", async (req: Request, res: Response) => {
   try {
     const parsed = chatRequestSchema.safeParse(req.body);
@@ -221,6 +234,7 @@ router.post("/", async (req: Request, res: Response) => {
     let responseContent = result.reply;
     let viewAllFilters = understanding.filters;
     let shouldAddCloser = true;
+    const isProductDiscovery = PRODUCT_DISCOVERY_INTENTS.has(understanding.intent);
 
     if (products.length === 0 && understanding.filters.size) {
       const alternatives = await findClosestSizeAlternatives(searchTerm, understanding.filters, sessionId);
@@ -243,6 +257,24 @@ router.post("/", async (req: Request, res: Response) => {
       }
     }
 
+    if (
+      products.length > 0 &&
+      products.length < PRODUCTS_PER_RESPONSE &&
+      isProductDiscovery &&
+      Boolean(searchTerm) &&
+      hasLiveShopifyStore
+    ) {
+      const supplemental = await searchPublicFilteredProducts(searchTerm, viewAllFilters, PRODUCTS_PER_RESPONSE * 3);
+      if (supplemental.length > 0) {
+        ranked = rankProductsForRevenue(
+          applyStrictResultFilters(mergeProductsByHandle(products, supplemental), viewAllFilters),
+          viewAllFilters
+        );
+        products = ranked.products;
+        productInsights = ranked.insights;
+      }
+    }
+
     if (products.length === 0) {
       responseContent = formatNoExactMatch(understanding.filters);
       shouldAddCloser = false;
@@ -260,7 +292,7 @@ router.post("/", async (req: Request, res: Response) => {
       hasComparison: Boolean(result.comparison),
     });
     const shouldOfferViewAll =
-      PRODUCT_DISCOVERY_INTENTS.has(understanding.intent) &&
+      isProductDiscovery &&
       Boolean(searchTerm);
     const responseMessage: ChatMessage = {
       id: nanoid(),
