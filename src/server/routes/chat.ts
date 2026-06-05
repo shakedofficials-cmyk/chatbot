@@ -263,6 +263,12 @@ router.post("/", async (req: Request, res: Response) => {
     const hasProductContext = Boolean(
       pageContext?.type === "product" && pageContext.handle
     ) || session.recentProducts.length > 0;
+    const isContextualProductCheck = Boolean(
+      pageContext?.type === "product" &&
+        pageContext.handle &&
+        understanding.filters.size &&
+        (understanding.intent === "size_lookup" || understanding.intent === "availability_check")
+    );
 
     if (isProductDiscovery && question && !hasProductContext) {
       await logEvent(sessionId, "low_confidence_search", {
@@ -358,9 +364,9 @@ router.post("/", async (req: Request, res: Response) => {
     let productInsights = ranked.insights;
     let responseContent = result.reply;
     let viewAllFilters = understanding.filters;
-    let shouldAddCloser = true;
+    let shouldAddCloser = !isContextualProductCheck;
 
-    if (isProductDiscovery) {
+    if (isProductDiscovery && !isContextualProductCheck) {
       const storefrontRanked = await topUpFromStorefront(searchTerm, viewAllFilters, products, shopperProfile);
       if (storefrontRanked) {
         const hadProducts = products.length > 0;
@@ -397,6 +403,7 @@ router.post("/", async (req: Request, res: Response) => {
 
     if (
       isProductDiscovery &&
+      !isContextualProductCheck &&
       products.length < PRODUCTS_PER_RESPONSE
     ) {
       const storefrontRanked = await topUpFromStorefront(searchTerm, viewAllFilters, products, shopperProfile);
@@ -424,6 +431,7 @@ router.post("/", async (req: Request, res: Response) => {
     });
     const shouldOfferViewAll =
       isProductDiscovery &&
+      !isContextualProductCheck &&
       Boolean(searchTerm);
     const quickReplies = buildQuickReplies({
       mission,
