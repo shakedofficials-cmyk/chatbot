@@ -93,6 +93,24 @@ describe("buildFilteredSearchUrl", () => {
     expect(url.searchParams.has("filter.p.m.custom.running_type")).toBe(false);
   });
 
+  it("does not apply lifestyle type facets to football model noise", () => {
+    const url = new URL(
+      buildFilteredSearchUrl("football", {
+        category: "football",
+        model: "2yes 44 football",
+        color: "red",
+        size: "44",
+        inStock: true,
+      })
+    );
+
+    expect(url.searchParams.get("q")).toBe("football");
+    expect(url.searchParams.get("filter.v.option.size")).toBe("44");
+    expect(url.searchParams.get("filter.p.product_type")).toBe("Football");
+    expect(url.searchParams.has("filter.p.m.custom.lifestyle_type")).toBe(false);
+    expect(url.searchParams.has("filter.p.m.custom.football_type")).toBe(false);
+  });
+
   it("does not infer a product type for generic color and size searches", () => {
     const url = new URL(
       buildFilteredSearchUrl(

@@ -36,11 +36,12 @@ function categoryKey(value: string | undefined): string {
   return normalized;
 }
 
-function typeFilterKey(category: string): string {
+function typeFilterKey(category: string): string | undefined {
   if (category === "basketball") return "basketball_type";
   if (category === "running") return "running_type";
   if (category === "training") return "training_type";
-  return "lifestyle_type";
+  if (category === "lifestyle") return "lifestyle_type";
+  return undefined;
 }
 
 function resolveStorefrontSizeFilter(size: string | undefined, products: Product[]): string | undefined {
@@ -119,13 +120,15 @@ export function buildFilteredSearchUrl(
   }
 
   const typeMetafield = effectiveFilters.silhouette ?? effectiveFilters.model;
+  const typeMetafieldKey = typeFilterKey(category);
   if (
     typeMetafield &&
     category &&
+    typeMetafieldKey &&
     !GENERIC_CATEGORIES.has(category) &&
     normalizeText(typeMetafield) !== category
   ) {
-    url.searchParams.set(`filter.p.m.custom.${typeFilterKey(category)}`, toFilterValue(typeMetafield));
+    url.searchParams.set(`filter.p.m.custom.${typeMetafieldKey}`, toFilterValue(typeMetafield));
   }
 
   const gender = effectiveFilters.gender ?? (

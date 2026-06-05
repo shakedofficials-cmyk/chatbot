@@ -124,7 +124,7 @@ Rules:
 - Extract the real product/search phrase. Strip filler like "I am looking for", "show me", "give me", "need", "want".
 - searchTerm must be short and storefront-search friendly. Example: "am looking for a way of wade" -> "way of wade".
 - Customers may write Lebanese Arabic / Franco-Arabic in Latin letters and numbers. Translate before extraction.
-- Examples: "bade/baddi/badde" = want, "sobat/sabat/soubat" = shoes, "a7mar/ahmar/7amra" = red, "la rfi2e" = for my friend.
+- Examples: "bade/baddi/badde" = want, "sobat/sabat/soubat" = shoes, "a7mar/ahmar/7amra" = red, "2yes/eyas/qiyas" = size, "la rfi2e" = for my friend.
 - Preserve unknown shoe model names. Do not require a whitelist. There are thousands of models.
 - Keep meaningful connector words inside model names, e.g. "Way of Wade", "Air Force 1".
 - model is only a named shoe line/model/silhouette. For "blue running shoes", model is null, category is running, color is blue.
@@ -187,6 +187,7 @@ function findDefaultCategory(normalizedQuery: string): string | undefined {
 const SHOPPER_LANGUAGE_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\b(?:bade|badde|baddi|badi|bedde|beddi|bdde|bde|bdi)\b/gi, "want"],
   [/\b(?:sobat|soubat|sabat|subat|shooz)\b/gi, "shoes"],
+  [/\b(?:2yes|2eyas|qyes|qiyas|eyas|iyas|ayes)\b/gi, "size"],
   [/\b(?:a7mar|ahmar|7amra|hamra|hamra2?)\b/gi, "red"],
   [/\b(?:azra2|azraq|zera2|zer2a)\b/gi, "blue"],
   [/\b(?:aswad|eswad|2aswad|sawda)\b/gi, "black"],
@@ -267,6 +268,29 @@ function cleanString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = normalizeText(value);
   return normalized || undefined;
+}
+
+function cleanCatalogModel(value: unknown, filters: SearchFilters): string | undefined {
+  const normalized = cleanString(value);
+  if (!normalized) return undefined;
+
+  const category = canonicalCategory(filters.category ?? filters.productType);
+  const noise = new Set([
+    "size",
+    "eu",
+    "shoe",
+    "shoes",
+    "sneaker",
+    "sneakers",
+    "friend",
+    normalizeText(filters.size),
+    normalizeText(filters.color),
+    normalizeText(category),
+  ].filter(Boolean));
+  const meaningfulTokens = stripStopWords(tokenize(normalizeShopperLanguage(normalized)))
+    .filter((token) => !noise.has(token));
+
+  return meaningfulTokens.length > 0 ? normalized : undefined;
 }
 
 function cleanNumber(value: unknown): number | undefined {
@@ -365,8 +389,6 @@ function mergeAiUnderstanding(
   if (!ai || ai.confidence < 0.35) return fallback;
 
   const brand = cleanString(ai.brand);
-  const model = cleanString(ai.model);
-  const silhouette = cleanString(ai.silhouette);
   const aiCategory = canonicalCategory(ai.category);
   const category = aiCategory && appearsInQuery(fallback.normalizedQuery, aiCategory)
     ? aiCategory
@@ -374,6 +396,14 @@ function mergeAiUnderstanding(
   const color = cleanString(ai.color);
   const gender = cleanString(ai.gender);
   const size = cleanString(ai.size);
+  const aiFiltersForModelCleaning = {
+    ...fallback.filters,
+    category,
+    color: color ?? fallback.filters.color,
+    size: size ?? fallback.filters.size,
+  };
+  const model = cleanCatalogModel(ai.model, aiFiltersForModelCleaning);
+  const silhouette = cleanCatalogModel(ai.silhouette, aiFiltersForModelCleaning);
   const effectiveModel = model ?? fallback.filters.model;
   const brandDuplicatesModel = Boolean(
     brand &&
