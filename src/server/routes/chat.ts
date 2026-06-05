@@ -9,6 +9,7 @@ import { aiProvider, env, hasLiveShopifyStore } from "../config.js";
 import { understandCatalogQuery } from "../services/retrieval/query-understanding.js";
 import { buildFilteredSearchUrl } from "../services/shopify/search-url.js";
 import { searchPublicFilteredProducts } from "../services/shopify/public-search.js";
+import { findBestVariantMatch } from "../services/size-resolution.js";
 import {
   productMatchesRequestedColor,
   rankProductsForRevenue,
@@ -76,6 +77,24 @@ function formatNoExactMatch(filters: SearchFilters): string {
   return parts.length > 1
     ? `No ${parts.join(" ")} in stock right now.`
     : "No exact match in stock right now.";
+}
+
+function formatInStockIntro(filters: SearchFilters): string {
+  const parts = [
+    filters.color,
+    filters.category ?? filters.productType,
+    "shoes",
+    filters.size ? `size ${filters.size}` : null,
+  ].filter(Boolean);
+
+  return parts.length > 1
+    ? `Here's what's in stock for ${parts.join(" ")}.`
+    : "Here's what's in stock.";
+}
+
+function hasExactRequestedSize(products: Product[], size: string | undefined): boolean {
+  if (!size) return false;
+  return products.some((product) => findBestVariantMatch(product.variants, size).exactMatchAvailable);
 }
 
 async function findClosestSizeAlternatives(
@@ -212,9 +231,15 @@ router.post("/", async (req: Request, res: Response) => {
         );
         products = ranked.products;
         productInsights = ranked.insights;
-        responseContent = `I didn't find size ${understanding.filters.size} exactly. These are the closest in-stock options I found.`;
-        viewAllFilters = { ...understanding.filters, size: undefined, inStock: true };
-        shouldAddCloser = false;
+        if (hasExactRequestedSize(products, understanding.filters.size)) {
+          responseContent = formatInStockIntro(understanding.filters);
+          viewAllFilters = understanding.filters;
+          shouldAddCloser = true;
+        } else {
+          responseContent = `I didn't find size ${understanding.filters.size} exactly. These are the closest in-stock options I found.`;
+          viewAllFilters = { ...understanding.filters, size: undefined, inStock: true };
+          shouldAddCloser = false;
+        }
       }
     }
 
