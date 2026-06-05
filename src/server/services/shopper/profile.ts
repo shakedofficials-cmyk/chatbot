@@ -34,6 +34,11 @@ function cleanChoice(value: unknown): string | undefined {
   return cleaned && cleaned.toLowerCase() !== "any" ? cleaned : undefined;
 }
 
+function cleanCategoryChoice(value: unknown): string | undefined {
+  const cleaned = cleanChoice(value);
+  return cleaned && !/^(shoe|shoes|sneaker|sneakers)$/i.test(cleaned) ? cleaned : undefined;
+}
+
 function cleanNumber(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
@@ -101,9 +106,9 @@ export function mergeShopperProfilePreferences(
   const color = cleanChoice(filters.color) ??
     cleanChoice(firstFromPayload(payload, ["color"])) ??
     cleanChoice(guidedAnswers.style);
-  const category = cleanChoice(filters.category ?? filters.productType) ??
-    cleanChoice(firstFromPayload(payload, ["category", "productType", "type"])) ??
-    cleanChoice(guidedAnswers.category);
+  const category = cleanCategoryChoice(filters.category ?? filters.productType) ??
+    cleanCategoryChoice(firstFromPayload(payload, ["category", "productType", "type"])) ??
+    cleanCategoryChoice(guidedAnswers.category);
   const clickedHandle = cleanString(firstFromPayload(payload, ["productHandle", "handle"]));
   const viewedHandle = cleanString(firstFromPayload(payload, ["viewedHandle"]));
   const recentCartIntent = signal.cartHasItems || signal.eventName === "add_to_cart"
@@ -170,7 +175,7 @@ export function buildProfileSummary(preferences: ShopperProfilePreferences): Sho
     preferences.preferredSize ? `Size ${preferences.preferredSize}` : null,
     preferences.favoriteBrands?.[0],
     preferences.preferredBudget ? `Under $${preferences.preferredBudget}` : null,
-    preferences.preferredCategories?.[0],
+    cleanCategoryChoice(preferences.preferredCategories?.[0]),
     preferences.preferredColors?.[0],
   ].filter((entry): entry is string => Boolean(entry)).slice(0, 4);
 

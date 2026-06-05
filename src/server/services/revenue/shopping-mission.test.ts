@@ -19,7 +19,7 @@ function understanding(input: Partial<QueryUnderstanding> = {}): QueryUnderstand
 
 describe("shopping mission", () => {
   it("uses profile memory to fill missing shopper slots", () => {
-    const result = applyProfileToUnderstanding(understanding(), {
+    const result = applyProfileToUnderstanding(understanding({ filters: { category: "shoe" } }), {
       preferredSize: "44",
       preferredBudget: 250,
       preferredGender: "men",

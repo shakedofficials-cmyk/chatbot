@@ -15,13 +15,17 @@ const PRODUCT_INTENTS = new Set<QueryIntent>([
   "recommendations",
 ]);
 
+function isGenericShoeCategory(value: string | undefined): boolean {
+  return Boolean(value && /^(shoe|shoes|sneaker|sneakers)$/i.test(value.trim()));
+}
+
 function hasSpecificStyle(filters: SearchFilters): boolean {
+  const category = filters.category ?? filters.productType;
   return Boolean(
     filters.model ||
       filters.silhouette ||
       filters.brand ||
-      filters.category ||
-      filters.productType ||
+      (category && !isGenericShoeCategory(category)) ||
       filters.color
   );
 }
@@ -29,8 +33,8 @@ function hasSpecificStyle(filters: SearchFilters): boolean {
 function primaryStyleSlot(filters: SearchFilters): string | undefined {
   return filters.silhouette ??
     filters.model ??
-    filters.category ??
-    filters.productType ??
+    (!isGenericShoeCategory(filters.category) ? filters.category : undefined) ??
+    (!isGenericShoeCategory(filters.productType) ? filters.productType : undefined) ??
     filters.color ??
     filters.brand;
 }
@@ -53,8 +57,13 @@ export function applyProfileToUnderstanding(
 
   if (!wasSpecific) {
     if (!filters.brand && profile.favoriteBrands?.[0]) filters.brand = profile.favoriteBrands[0];
-    if (!filters.category && !filters.productType && profile.preferredCategories?.[0]) {
+    if (
+      profile.preferredCategories?.[0] &&
+      (!filters.category || isGenericShoeCategory(filters.category)) &&
+      (!filters.productType || isGenericShoeCategory(filters.productType))
+    ) {
       filters.category = profile.preferredCategories[0];
+      filters.productType = undefined;
     }
     if (!filters.color && profile.preferredColors?.[0]) filters.color = profile.preferredColors[0];
   }
