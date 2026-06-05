@@ -1777,6 +1777,16 @@ class ORJNConciergeWidget {
     return wrapper;
   }
 
+  private renderViewAllLink(viewAllUrl: string): HTMLAnchorElement {
+    const viewAll = document.createElement("a");
+    viewAll.className = "orjn-view-all-btn";
+    viewAll.href = viewAllUrl;
+    viewAll.target = "_blank";
+    viewAll.rel = "noopener noreferrer";
+    viewAll.textContent = "VIEW MORE ON ORJN";
+    return viewAll;
+  }
+
   private appendAssistantPayload(
     text: string,
     products?: Product[],
@@ -1805,6 +1815,8 @@ class ORJNConciergeWidget {
       }
 
       this.messages.appendChild(stack);
+    } else if (viewAllUrl) {
+      this.messages.appendChild(this.renderViewAllLink(viewAllUrl));
     }
 
     if (comparison) {

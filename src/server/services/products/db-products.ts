@@ -526,6 +526,7 @@ export async function hybridSearchProducts(
   // like "Air Force 1" never silently return zero when the products exist in the DB.
   if (lexicalCandidates.length === 0 && semanticCandidates.length === 0) {
     const normalizedQ = normalizeText(query);
+    const hasFilters = hasMeaningfulFilters(mergedFilters);
     const filteredFallback = hasMeaningfulFilters(mergedFilters)
       ? await prisma.syncProduct.findMany({
           where: buildWhere(mergedFilters),
@@ -547,7 +548,7 @@ export async function hybridSearchProducts(
       });
     }
 
-    if (lexicalCandidates.length === 0) {
+    if (lexicalCandidates.length === 0 && !hasFilters) {
       const fallback = await prisma.syncProduct.findMany({
         where: {
           OR: [

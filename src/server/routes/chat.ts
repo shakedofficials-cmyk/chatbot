@@ -62,6 +62,19 @@ function addRevenueCloser(reply: string, size: string | undefined, productCount:
   return `${reply.replace(/\s+$/, "")} Want size ${size}?`;
 }
 
+function formatNoExactMatch(filters: SearchFilters): string {
+  const parts = [
+    filters.color,
+    filters.category ?? filters.productType,
+    "shoes",
+    filters.size ? `size ${filters.size}` : null,
+  ].filter(Boolean);
+
+  return parts.length > 1
+    ? `No ${parts.join(" ")} in stock right now.`
+    : "No exact match in stock right now.";
+}
+
 async function findClosestSizeAlternatives(
   query: string,
   filters: SearchFilters,
@@ -192,6 +205,11 @@ router.post("/", async (req: Request, res: Response) => {
       }
     }
 
+    if (products.length === 0) {
+      responseContent = formatNoExactMatch(understanding.filters);
+      shouldAddCloser = false;
+    }
+
     const actions = buildWhatsAppActions({
       whatsappNumber: configuredWhatsAppNumber,
       userMessage: message,
@@ -204,7 +222,6 @@ router.post("/", async (req: Request, res: Response) => {
       hasComparison: Boolean(result.comparison),
     });
     const shouldOfferViewAll =
-      products.length > 0 &&
       PRODUCT_DISCOVERY_INTENTS.has(understanding.intent) &&
       Boolean(searchTerm);
     const responseMessage: ChatMessage = {
@@ -231,7 +248,7 @@ router.post("/", async (req: Request, res: Response) => {
     const updatedHistory = [
       ...session.conversationHistory,
       { role: "user" as const, content: message },
-      { role: "assistant" as const, content: result.reply },
+      { role: "assistant" as const, content: responseContent },
     ];
 
     await updateSession(sessionId, {
