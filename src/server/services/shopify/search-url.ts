@@ -65,7 +65,11 @@ function enrichFiltersForUrl(filters: SearchFilters, products: Product[]): Searc
   const currentCategory = categoryKey(enriched.productType ?? enriched.category);
   const productType = inferProductType(products);
 
-  if (productType && (!currentCategory || GENERIC_CATEGORIES.has(currentCategory))) {
+  if (
+    productType &&
+    (!currentCategory || GENERIC_CATEGORIES.has(currentCategory)) &&
+    (enriched.model || enriched.silhouette)
+  ) {
     enriched.productType = productType;
     enriched.category = productType;
   }

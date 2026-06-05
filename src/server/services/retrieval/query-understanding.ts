@@ -367,7 +367,10 @@ function mergeAiUnderstanding(
   const brand = cleanString(ai.brand);
   const model = cleanString(ai.model);
   const silhouette = cleanString(ai.silhouette);
-  const category = canonicalCategory(ai.category);
+  const aiCategory = canonicalCategory(ai.category);
+  const category = aiCategory && appearsInQuery(fallback.normalizedQuery, aiCategory)
+    ? aiCategory
+    : fallback.filters.category;
   const color = cleanString(ai.color);
   const gender = cleanString(ai.gender);
   const size = cleanString(ai.size);
@@ -384,7 +387,7 @@ function mergeAiUnderstanding(
       : fallback.filters.brand,
     model: effectiveModel,
     silhouette: silhouette ?? fallback.filters.silhouette,
-    category: category ?? fallback.filters.category,
+    category,
     color: color ?? fallback.filters.color,
     gender: gender === "men" || gender === "women" ? gender : fallback.filters.gender,
     tags: gender === "men" || gender === "women" ? gender : fallback.filters.tags,

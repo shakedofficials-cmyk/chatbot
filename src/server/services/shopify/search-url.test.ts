@@ -92,4 +92,19 @@ describe("buildFilteredSearchUrl", () => {
     expect(url.searchParams.has("filter.p.m.custom.lifestyle_type")).toBe(false);
     expect(url.searchParams.has("filter.p.m.custom.running_type")).toBe(false);
   });
+
+  it("does not infer a product type for generic color and size searches", () => {
+    const url = new URL(
+      buildFilteredSearchUrl(
+        "red",
+        { category: "shoe", color: "red", size: "44", inStock: true },
+        [makeProduct("Football", [makeVariant("44")])]
+      )
+    );
+
+    expect(url.searchParams.get("q")).toBe("red");
+    expect(url.searchParams.get("filter.v.option.size")).toBe("44");
+    expect(url.searchParams.get("filter.p.m.custom.color")).toBe("Red");
+    expect(url.searchParams.has("filter.p.product_type")).toBe(false);
+  });
 });
