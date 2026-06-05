@@ -81,7 +81,7 @@ postgresql://user:password@host:5432/database_name
    SYNC_SECRET=your-sync-secret
    RETRIEVAL_DEBUG_SECRET=your-debug-secret
    ANALYTICS_SECRET=your-analytics-secret
-   WHATSAPP_NUMBER=96170123456
+   WHATSAPP_NUMBER=96179081625
    ```
 3. Install dependencies: `npm install`
 4. Apply database migrations: `npx prisma migrate deploy`
