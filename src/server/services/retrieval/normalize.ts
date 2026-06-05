@@ -29,6 +29,8 @@ export const DEFAULT_CATEGORIES = [
   "lifestyle",
   "basket",
   "basketball",
+  "football",
+  "soccer",
   "training",
   "sportswear",
   "loafer",
@@ -108,6 +110,10 @@ const STOP_WORDS = new Set([
   "products",
   "search",
   "show",
+  "shoe",
+  "shoes",
+  "sneaker",
+  "sneakers",
   "something",
   "that",
   "the",
@@ -116,6 +122,7 @@ const STOP_WORDS = new Set([
   "with",
   "you",
   "your",
+  "friend",
 ]);
 
 export function normalizeText(value: string | null | undefined): string {

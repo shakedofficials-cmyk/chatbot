@@ -60,6 +60,19 @@ describe("Query Understanding", () => {
     expect(result.entities.searchTerm).toBe("way of wade");
   });
 
+  it("translates Franco-Arabic shopping terms into hard filters", async () => {
+    const { understandCatalogQuery } = await import("./query-understanding.js");
+
+    const result = await understandCatalogQuery("bade sobat a7mar la rfi2e size 44 football");
+
+    expect(result.filters.color).toBe("red");
+    expect(result.filters.category).toBe("football");
+    expect(result.filters.size).toBe("44");
+    expect(result.filters.inStock).toBe(true);
+    expect(result.filters.model).toBeUndefined();
+    expect(result.entities.searchTerm).toBe("football");
+  });
+
   it("routes policy and authenticity questions away from product search", async () => {
     const { understandCatalogQuery } = await import("./query-understanding.js");
 

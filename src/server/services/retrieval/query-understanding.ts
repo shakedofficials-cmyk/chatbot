@@ -59,6 +59,15 @@ const PRODUCT_INTENTS = new Set<QueryIntent>([
   "recommendations",
   "comparison",
 ]);
+const SPECIFIC_CATEGORY_PRIORITY = [
+  "basketball",
+  "football",
+  "soccer",
+  "running",
+  "runner",
+  "training",
+  "lifestyle",
+];
 
 const AI_QUERY_SCHEMA = {
   type: "object",
@@ -114,11 +123,14 @@ Return only JSON matching the schema.
 Rules:
 - Extract the real product/search phrase. Strip filler like "I am looking for", "show me", "give me", "need", "want".
 - searchTerm must be short and storefront-search friendly. Example: "am looking for a way of wade" -> "way of wade".
+- Customers may write Lebanese Arabic / Franco-Arabic in Latin letters and numbers. Translate before extraction.
+- Examples: "bade/baddi/badde" = want, "sobat/sabat/soubat" = shoes, "a7mar/ahmar/7amra" = red, "la rfi2e" = for my friend.
 - Preserve unknown shoe model names. Do not require a whitelist. There are thousands of models.
 - Keep meaningful connector words inside model names, e.g. "Way of Wade", "Air Force 1".
 - model is only a named shoe line/model/silhouette. For "blue running shoes", model is null, category is running, color is blue.
+- Football/soccer means football/soccer shoes. Do not map it to running or training. If the store has no football products, leave the result empty and let the system offer WhatsApp.
 - Do not infer parent brands that the customer did not type. If they write "Way of Wade", brand is null unless they also write "Li-Ning".
-- Use category only for use cases/types like lifestyle, running, basketball, training.
+- Use category only for use cases/types like lifestyle, running, basketball, football/soccer, training.
 - Use gender only for men/women requests.
 - Use USD prices only. "under 250" means maxPrice 250.
 - inStock is true for explicit stock/availability/size requests and normal product-finding requests.`;
@@ -167,6 +179,37 @@ function extractSize(normalizedQuery: string): string | undefined {
   return undefined;
 }
 
+function findDefaultCategory(normalizedQuery: string): string | undefined {
+  return SPECIFIC_CATEGORY_PRIORITY.find((entry) => normalizedQuery.includes(entry)) ??
+    DEFAULT_CATEGORIES.find((entry) => normalizedQuery.includes(entry));
+}
+
+const SHOPPER_LANGUAGE_REPLACEMENTS: Array<[RegExp, string]> = [
+  [/\b(?:bade|badde|baddi|badi|bedde|beddi|bdde|bde|bdi)\b/gi, "want"],
+  [/\b(?:sobat|soubat|sabat|subat|shooz)\b/gi, "shoes"],
+  [/\b(?:a7mar|ahmar|7amra|hamra|hamra2?)\b/gi, "red"],
+  [/\b(?:azra2|azraq|zera2|zer2a)\b/gi, "blue"],
+  [/\b(?:aswad|eswad|2aswad|sawda)\b/gi, "black"],
+  [/\b(?:abyad|abyad|2abyad|bayda)\b/gi, "white"],
+  [/\b(?:a5dar|akhdar|5adra|khadra)\b/gi, "green"],
+  [/\b(?:asfar|safra)\b/gi, "yellow"],
+  [/\b(?:bunni|bune|bouni|brown)\b/gi, "brown"],
+  [/\b(?:ramadi|rmadi|remede|grey|gray)\b/gi, "grey"],
+  [/\b(?:zahri|zahre|zehre|pink)\b/gi, "pink"],
+  [/\b(?:borto2ane|borto2ani|orange)\b/gi, "orange"],
+  [/\b(?:k7ele|khele|navy)\b/gi, "navy"],
+  [/\b(?:rfi2e|rfi2i|rafi2e|rafi2i|rafike|rafiki|friend)\b/gi, "friend"],
+  [/\b(?:la|lal)\b/gi, "for"],
+  [/\b(?:koura|koora|foutbol|futbol|football|soccer)\b/gi, "football"],
+];
+
+function normalizeShopperLanguage(value: string): string {
+  return SHOPPER_LANGUAGE_REPLACEMENTS.reduce(
+    (current, [pattern, replacement]) => current.replace(pattern, replacement),
+    value
+  );
+}
+
 function stripShoppingLanguage(value: string): string {
   let working = normalizeText(value);
   for (let i = 0; i < 4; i += 1) {
@@ -212,6 +255,7 @@ function canonicalCategory(value: string | null | undefined): string | undefined
   const normalized = normalizeText(value);
   if (!normalized) return undefined;
   if (normalized === "basket" || normalized.includes("basketball")) return "basketball";
+  if (normalized.includes("football") || normalized.includes("soccer")) return "football";
   if (normalized.includes("running") || normalized === "runner") return "running";
   if (normalized.includes("training")) return "training";
   if (normalized.includes("lifestyle")) return "lifestyle";
@@ -283,6 +327,7 @@ async function interpretWithOpenAI(
           role: "user",
           content: [
             `Customer message: ${query}`,
+            `Normalized shopper language: ${fallback.normalizedQuery}`,
             `Deterministic fallback: ${JSON.stringify({
               intent: fallback.intent,
               filters: fallback.filters,
@@ -374,7 +419,7 @@ export async function understandCatalogQuery(
   query: string,
   options: UnderstandingOptions = {}
 ): Promise<QueryUnderstanding> {
-  const normalizedQuery = normalizeText(query);
+  const normalizedQuery = normalizeText(normalizeShopperLanguage(query));
   const intent = detectIntent(normalizedQuery);
 
   const brand =
@@ -383,7 +428,7 @@ export async function understandCatalogQuery(
 
   const category =
     (await findCanonicalSynonym(normalizedQuery, "category")) ??
-    DEFAULT_CATEGORIES.find((entry) => normalizedQuery.includes(entry));
+    findDefaultCategory(normalizedQuery);
 
   const color = DEFAULT_COLORS.find((entry) => normalizedQuery.includes(entry));
   const styleTerms = STYLE_TERMS.filter((entry) => normalizedQuery.includes(entry));

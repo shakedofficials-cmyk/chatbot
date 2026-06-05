@@ -92,8 +92,10 @@ export async function executeTool(
 
 const HARD_CATEGORY_FILTERS = new Set([
   "basketball",
+  "football",
   "lifestyle",
   "running",
+  "soccer",
   "training",
 ]);
 
@@ -101,6 +103,7 @@ function canonicalCategory(value: string | undefined): string | undefined {
   const normalized = normalizeText(value);
   if (!normalized) return undefined;
   if (normalized === "basket" || normalized.includes("basketball")) return "basketball";
+  if (normalized.includes("football") || normalized.includes("soccer")) return "football";
   if (normalized.includes("lifestyle")) return "lifestyle";
   if (normalized.includes("running") || normalized === "runner") return "running";
   if (normalized.includes("training")) return "training";

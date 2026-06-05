@@ -29,6 +29,7 @@ function inferProductType(products: Product[]): string | undefined {
 function categoryKey(value: string | undefined): string {
   const normalized = normalizeText(value);
   if (normalized.includes("basket")) return "basketball";
+  if (normalized.includes("football") || normalized.includes("soccer")) return "football";
   if (normalized.includes("running") || normalized.includes("run")) return "running";
   if (normalized.includes("training") || normalized.includes("train")) return "training";
   if (normalized.includes("lifestyle") || normalized.includes("life style")) return "lifestyle";
@@ -114,7 +115,12 @@ export function buildFilteredSearchUrl(
   }
 
   const typeMetafield = effectiveFilters.silhouette ?? effectiveFilters.model;
-  if (typeMetafield && category && !GENERIC_CATEGORIES.has(category)) {
+  if (
+    typeMetafield &&
+    category &&
+    !GENERIC_CATEGORIES.has(category) &&
+    normalizeText(typeMetafield) !== category
+  ) {
     url.searchParams.set(`filter.p.m.custom.${typeFilterKey(category)}`, toFilterValue(typeMetafield));
   }
 

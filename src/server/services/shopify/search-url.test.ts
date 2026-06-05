@@ -73,4 +73,23 @@ describe("buildFilteredSearchUrl", () => {
     expect(url.searchParams.has("filter.p.tag")).toBe(false);
     expect(url.searchParams.has("filter.p.m.custom.lifestyle_type")).toBe(false);
   });
+
+  it("keeps football search links on football product type and color facets", () => {
+    const url = new URL(
+      buildFilteredSearchUrl("football", {
+        category: "football",
+        color: "red",
+        size: "44",
+        inStock: true,
+      })
+    );
+
+    expect(url.searchParams.get("q")).toBe("football");
+    expect(url.searchParams.get("filter.v.availability")).toBe("1");
+    expect(url.searchParams.get("filter.v.option.size")).toBe("44");
+    expect(url.searchParams.get("filter.p.m.custom.color")).toBe("Red");
+    expect(url.searchParams.get("filter.p.product_type")).toBe("Football");
+    expect(url.searchParams.has("filter.p.m.custom.lifestyle_type")).toBe(false);
+    expect(url.searchParams.has("filter.p.m.custom.running_type")).toBe(false);
+  });
 });

@@ -15,6 +15,12 @@ import { searchProducts as searchCatalogProducts } from "../services/products/db
 import type { ChatMessage, PageContext, Product, SearchFilters, ShopperPreferences } from "../../shared/types.js";
 
 const PRODUCTS_PER_RESPONSE = 5;
+const PRODUCT_DISCOVERY_INTENTS = new Set([
+  "product_search",
+  "availability_check",
+  "size_lookup",
+  "recommendations",
+]);
 
 const router = Router();
 
@@ -197,7 +203,10 @@ router.post("/", async (req: Request, res: Response) => {
       intent: understanding.intent,
       hasComparison: Boolean(result.comparison),
     });
-    const hasMore = products.length > PRODUCTS_PER_RESPONSE;
+    const shouldOfferViewAll =
+      products.length > 0 &&
+      PRODUCT_DISCOVERY_INTENTS.has(understanding.intent) &&
+      Boolean(searchTerm);
     const responseMessage: ChatMessage = {
       id: nanoid(),
       role: "assistant",
@@ -213,7 +222,7 @@ router.post("/", async (req: Request, res: Response) => {
       comparison: result.comparison ?? undefined,
       cartAction: result.cartAction ?? undefined,
       actions: actions.length > 0 ? actions : undefined,
-      viewAllUrl: hasMore
+      viewAllUrl: shouldOfferViewAll
         ? buildFilteredSearchUrl(searchTerm, viewAllFilters, products)
         : undefined,
       timestamp: Date.now(),
