@@ -66,13 +66,22 @@ function addRevenueCloser(reply: string, size: string | undefined, productCount:
   return `${reply.replace(/\s+$/, "")} Want size ${size}?`;
 }
 
-function formatNoExactMatch(filters: SearchFilters): string {
-  const parts = [
+function isGenericShoeCategory(value: string | undefined): boolean {
+  return Boolean(value && /^(shoe|shoes|sneaker|sneakers)$/i.test(value.trim()));
+}
+
+function formatShoeSearchParts(filters: SearchFilters): string[] {
+  const category = filters.category ?? filters.productType;
+  return [
     filters.color,
-    filters.category ?? filters.productType,
+    isGenericShoeCategory(category) ? null : category,
     "shoes",
     filters.size ? `size ${filters.size}` : null,
-  ].filter(Boolean);
+  ].filter((part): part is string => Boolean(part));
+}
+
+function formatNoExactMatch(filters: SearchFilters): string {
+  const parts = formatShoeSearchParts(filters);
 
   return parts.length > 1
     ? `No ${parts.join(" ")} in stock right now.`
@@ -80,12 +89,7 @@ function formatNoExactMatch(filters: SearchFilters): string {
 }
 
 function formatInStockIntro(filters: SearchFilters): string {
-  const parts = [
-    filters.color,
-    filters.category ?? filters.productType,
-    "shoes",
-    filters.size ? `size ${filters.size}` : null,
-  ].filter(Boolean);
+  const parts = formatShoeSearchParts(filters);
 
   return parts.length > 1
     ? `Here's what's in stock for ${parts.join(" ")}.`
@@ -133,6 +137,24 @@ function mergeProductsByHandle(primary: Product[], supplemental: Product[]): Pro
   }
 
   return merged;
+}
+
+async function topUpFromStorefront(
+  query: string,
+  filters: SearchFilters,
+  products: Product[]
+): Promise<{ products: Product[]; insights: ReturnType<typeof rankProductsForRevenue>["insights"] } | null> {
+  if (!query || products.length >= PRODUCTS_PER_RESPONSE || !hasLiveShopifyStore) return null;
+
+  const supplemental = await searchPublicFilteredProducts(query, filters, PRODUCTS_PER_RESPONSE * 3);
+  if (supplemental.length === 0) return null;
+
+  const ranked = rankProductsForRevenue(
+    applyStrictResultFilters(mergeProductsByHandle(products, supplemental), filters),
+    filters
+  );
+
+  return ranked.products.length > products.length ? ranked : null;
 }
 
 router.post("/", async (req: Request, res: Response) => {
@@ -236,6 +258,19 @@ router.post("/", async (req: Request, res: Response) => {
     let shouldAddCloser = true;
     const isProductDiscovery = PRODUCT_DISCOVERY_INTENTS.has(understanding.intent);
 
+    if (isProductDiscovery) {
+      const storefrontRanked = await topUpFromStorefront(searchTerm, viewAllFilters, products);
+      if (storefrontRanked) {
+        const hadProducts = products.length > 0;
+        products = storefrontRanked.products;
+        productInsights = storefrontRanked.insights;
+        if (!hadProducts) {
+          responseContent = formatInStockIntro(viewAllFilters);
+          shouldAddCloser = true;
+        }
+      }
+    }
+
     if (products.length === 0 && understanding.filters.size) {
       const alternatives = await findClosestSizeAlternatives(searchTerm, understanding.filters, sessionId);
       if (alternatives.length > 0) {
@@ -258,20 +293,13 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     if (
-      products.length > 0 &&
-      products.length < PRODUCTS_PER_RESPONSE &&
       isProductDiscovery &&
-      Boolean(searchTerm) &&
-      hasLiveShopifyStore
+      products.length < PRODUCTS_PER_RESPONSE
     ) {
-      const supplemental = await searchPublicFilteredProducts(searchTerm, viewAllFilters, PRODUCTS_PER_RESPONSE * 3);
-      if (supplemental.length > 0) {
-        ranked = rankProductsForRevenue(
-          applyStrictResultFilters(mergeProductsByHandle(products, supplemental), viewAllFilters),
-          viewAllFilters
-        );
-        products = ranked.products;
-        productInsights = ranked.insights;
+      const storefrontRanked = await topUpFromStorefront(searchTerm, viewAllFilters, products);
+      if (storefrontRanked) {
+        products = storefrontRanked.products;
+        productInsights = storefrontRanked.insights;
       }
     }
 
