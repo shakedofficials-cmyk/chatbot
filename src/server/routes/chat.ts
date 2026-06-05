@@ -15,8 +15,20 @@ import {
   rankProductsForRevenue,
 } from "../services/revenue/recommendations.js";
 import { buildWhatsAppActions, isHumanHandoffRequest } from "../services/revenue/whatsapp.js";
+import {
+  applyProfileToUnderstanding,
+  buildQuickReplies,
+  buildShoppingMission,
+  missionQuestion,
+} from "../services/revenue/shopping-mission.js";
+import {
+  buildProfileSummary,
+  getShopperProfile,
+  mergeShopperProfile,
+  toSessionPreferences,
+} from "../services/shopper/profile.js";
 import { searchProducts as searchCatalogProducts } from "../services/products/db-products.js";
-import type { ChatMessage, PageContext, Product, SearchFilters, ShopperPreferences } from "../../shared/types.js";
+import type { ChatMessage, PageContext, Product, SearchFilters, ShopperPreferences, ShopperProfilePreferences } from "../../shared/types.js";
 
 const PRODUCTS_PER_RESPONSE = 5;
 const PRODUCT_DISCOVERY_INTENTS = new Set([
@@ -33,6 +45,12 @@ const chatRequestSchema = z.object({
   message: z.string().min(1).max(2000),
   cartId: z.string().optional(),
   whatsappNumber: z.string().max(32).optional(),
+  shopperId: z.string().min(1).max(128).optional(),
+  clientSignals: z.object({
+    clickedHandles: z.array(z.string().min(1).max(256)).max(20).optional(),
+    viewedHandles: z.array(z.string().min(1).max(256)).max(20).optional(),
+    cartHasItems: z.boolean().optional(),
+  }).optional(),
   pageContext: z.object({
     type: z.enum(["home", "product", "collection", "search", "other"]),
     handle: z.string().max(256).optional(),
@@ -142,7 +160,8 @@ function mergeProductsByHandle(primary: Product[], supplemental: Product[]): Pro
 async function topUpFromStorefront(
   query: string,
   filters: SearchFilters,
-  products: Product[]
+  products: Product[],
+  profile?: ShopperProfilePreferences
 ): Promise<{ products: Product[]; insights: ReturnType<typeof rankProductsForRevenue>["insights"] } | null> {
   if (!query || products.length >= PRODUCTS_PER_RESPONSE || !hasLiveShopifyStore) return null;
 
@@ -151,7 +170,8 @@ async function topUpFromStorefront(
 
   const ranked = rankProductsForRevenue(
     applyStrictResultFilters(mergeProductsByHandle(products, supplemental), filters),
-    filters
+    filters,
+    profile
   );
 
   return ranked.products.length > products.length ? ranked : null;
@@ -165,13 +185,22 @@ router.post("/", async (req: Request, res: Response) => {
       return;
     }
 
-    const { sessionId, message, cartId: clientCartId, pageContext, whatsappNumber } = parsed.data;
+    const {
+      sessionId,
+      message,
+      cartId: clientCartId,
+      pageContext,
+      whatsappNumber,
+      shopperId,
+      clientSignals,
+    } = parsed.data;
 
     const session = await getOrCreateSession(sessionId);
     const cartId = clientCartId ?? session.cartId;
+    const shopperProfile = await getShopperProfile(shopperId);
 
     if (session.conversationHistory.length === 0) {
-      await logEvent(sessionId, "first_message_sent", {});
+      await logEvent(sessionId, "first_message_sent", { shopperId });
     }
 
     const configuredWhatsAppNumber = env.WHATSAPP_NUMBER || whatsappNumber || "";
@@ -208,17 +237,90 @@ router.post("/", async (req: Request, res: Response) => {
         recentProducts: session.recentProducts,
         preferences: session.preferences,
       });
+      const updatedProfile = await mergeShopperProfile(shopperId, {
+        clickedHandles: clientSignals?.clickedHandles,
+        viewedHandles: clientSignals?.viewedHandles,
+        cartHasItems: clientSignals?.cartHasItems,
+        eventName: "whatsapp_clicked",
+      });
 
       res.json({
         sessionId,
         message: responseMessage,
         cartId,
+        shopperProfile: buildProfileSummary(updatedProfile),
       });
       return;
     }
 
     const runOrchestrate = pickOrchestrator();
-    const understanding = await understandCatalogQuery(message, { useAi: aiProvider === "openai" });
+    const rawUnderstanding = await understandCatalogQuery(message, { useAi: aiProvider === "openai" });
+    const understanding = applyProfileToUnderstanding(rawUnderstanding, shopperProfile);
+    const mission = buildShoppingMission(understanding);
+    const profileSessionPreferences = toSessionPreferences(shopperProfile);
+    const isProductDiscovery = PRODUCT_DISCOVERY_INTENTS.has(understanding.intent);
+    const question = missionQuestion(mission);
+    const hasProductContext = Boolean(
+      pageContext?.type === "product" && pageContext.handle
+    ) || session.recentProducts.length > 0;
+
+    if (isProductDiscovery && question && !hasProductContext) {
+      await logEvent(sessionId, "low_confidence_search", {
+        shopperId,
+        query: message,
+        effectiveFilters: understanding.filters,
+        mission,
+      });
+      const quickReplies = buildQuickReplies({
+        mission,
+        filters: understanding.filters,
+        products: [],
+        whatsappEnabled: Boolean(configuredWhatsAppNumber),
+      });
+      const responseMessage: ChatMessage = {
+        id: nanoid(),
+        role: "assistant",
+        content: question,
+        quickReplies,
+        mission,
+        timestamp: Date.now(),
+      };
+      const updatedHistory = [
+        ...session.conversationHistory,
+        { role: "user" as const, content: message },
+        { role: "assistant" as const, content: question },
+      ];
+      const updatedProfile = await mergeShopperProfile(shopperId, {
+        filters: understanding.filters,
+        clickedHandles: clientSignals?.clickedHandles,
+        viewedHandles: clientSignals?.viewedHandles,
+        cartHasItems: clientSignals?.cartHasItems,
+        payload: { query: message },
+      });
+
+      await updateSession(sessionId, {
+        cartId: cartId ?? session.cartId ?? undefined,
+        conversationHistory: trimHistory(updatedHistory),
+        recentProducts: session.recentProducts,
+        preferences: mergePreferences(session.preferences, {
+          ...profileSessionPreferences,
+          favoriteBrand: understanding.filters.brand ?? profileSessionPreferences.favoriteBrand,
+          preferredSize: understanding.filters.size ?? profileSessionPreferences.preferredSize,
+          preferredCategory: understanding.filters.category ?? understanding.filters.productType ?? profileSessionPreferences.preferredCategory,
+          preferredColor: understanding.filters.color ?? profileSessionPreferences.preferredColor,
+          lastIntent: understanding.intent,
+        }),
+      });
+
+      res.json({
+        sessionId,
+        message: responseMessage,
+        cartId,
+        shopperProfile: buildProfileSummary(updatedProfile),
+      });
+      return;
+    }
+
     const result = await runOrchestrate(
       message,
       trimHistory(session.conversationHistory),
@@ -226,7 +328,7 @@ router.post("/", async (req: Request, res: Response) => {
       cartId,
       {
         recentProductHandles: session.recentProducts.slice(-4),
-        preferences: session.preferences,
+        preferences: { ...session.preferences, ...profileSessionPreferences },
         deterministicFilters: understanding.filters,
         pageContext,
       }
@@ -249,17 +351,17 @@ router.post("/", async (req: Request, res: Response) => {
 
     let ranked = rankProductsForRevenue(
       applyStrictResultFilters(result.products, understanding.filters),
-      understanding.filters
+      understanding.filters,
+      shopperProfile
     );
     let products = ranked.products;
     let productInsights = ranked.insights;
     let responseContent = result.reply;
     let viewAllFilters = understanding.filters;
     let shouldAddCloser = true;
-    const isProductDiscovery = PRODUCT_DISCOVERY_INTENTS.has(understanding.intent);
 
     if (isProductDiscovery) {
-      const storefrontRanked = await topUpFromStorefront(searchTerm, viewAllFilters, products);
+      const storefrontRanked = await topUpFromStorefront(searchTerm, viewAllFilters, products, shopperProfile);
       if (storefrontRanked) {
         const hadProducts = products.length > 0;
         products = storefrontRanked.products;
@@ -276,7 +378,8 @@ router.post("/", async (req: Request, res: Response) => {
       if (alternatives.length > 0) {
         ranked = rankProductsForRevenue(
           applyStrictResultFilters(alternatives, understanding.filters),
-          understanding.filters
+          understanding.filters,
+          shopperProfile
         );
         products = ranked.products;
         productInsights = ranked.insights;
@@ -296,7 +399,7 @@ router.post("/", async (req: Request, res: Response) => {
       isProductDiscovery &&
       products.length < PRODUCTS_PER_RESPONSE
     ) {
-      const storefrontRanked = await topUpFromStorefront(searchTerm, viewAllFilters, products);
+      const storefrontRanked = await topUpFromStorefront(searchTerm, viewAllFilters, products, shopperProfile);
       if (storefrontRanked) {
         products = storefrontRanked.products;
         productInsights = storefrontRanked.insights;
@@ -322,6 +425,12 @@ router.post("/", async (req: Request, res: Response) => {
     const shouldOfferViewAll =
       isProductDiscovery &&
       Boolean(searchTerm);
+    const quickReplies = buildQuickReplies({
+      mission,
+      filters: understanding.filters,
+      products,
+      whatsappEnabled: Boolean(configuredWhatsAppNumber),
+    });
     const responseMessage: ChatMessage = {
       id: nanoid(),
       role: "assistant",
@@ -340,6 +449,8 @@ router.post("/", async (req: Request, res: Response) => {
       viewAllUrl: shouldOfferViewAll
         ? buildFilteredSearchUrl(searchTerm, viewAllFilters, products)
         : undefined,
+      quickReplies: quickReplies.length > 0 ? quickReplies : undefined,
+      mission,
       timestamp: Date.now(),
     };
 
@@ -348,6 +459,18 @@ router.post("/", async (req: Request, res: Response) => {
       { role: "user" as const, content: message },
       { role: "assistant" as const, content: responseContent },
     ];
+
+    const updatedProfile = await mergeShopperProfile(shopperId, {
+      filters: understanding.filters,
+      clickedHandles: clientSignals?.clickedHandles,
+      viewedHandles: clientSignals?.viewedHandles,
+      cartHasItems: clientSignals?.cartHasItems,
+      payload: {
+        query: message,
+        effectiveFilters: understanding.filters,
+      },
+    });
+    const mergedProfilePreferences = toSessionPreferences(updatedProfile);
 
     await updateSession(sessionId, {
       cartId: result.cartId ?? session.cartId ?? undefined,
@@ -359,10 +482,11 @@ router.post("/", async (req: Request, res: Response) => {
         ]),
       ].slice(-20),
       preferences: mergePreferences(session.preferences, {
-        favoriteBrand: understanding.filters.brand,
-        preferredSize: understanding.filters.size,
-        preferredCategory: understanding.filters.category ?? understanding.filters.productType,
-        preferredColor: understanding.filters.color,
+        ...mergedProfilePreferences,
+        favoriteBrand: understanding.filters.brand ?? mergedProfilePreferences.favoriteBrand,
+        preferredSize: understanding.filters.size ?? mergedProfilePreferences.preferredSize,
+        preferredCategory: understanding.filters.category ?? understanding.filters.productType ?? mergedProfilePreferences.preferredCategory,
+        preferredColor: understanding.filters.color ?? mergedProfilePreferences.preferredColor,
         lastIntent: understanding.intent,
       }),
     });
@@ -371,6 +495,7 @@ router.post("/", async (req: Request, res: Response) => {
       sessionId,
       message: responseMessage,
       cartId: result.cartId,
+      shopperProfile: buildProfileSummary(updatedProfile),
     });
   } catch (err) {
     console.error("Chat error:", err);

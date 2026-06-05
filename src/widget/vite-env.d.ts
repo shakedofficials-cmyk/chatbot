@@ -15,5 +15,7 @@ interface Window {
     whatsappNumber?: string;
     whatsappEnabled?: boolean;
     nudgeEnabled?: boolean;
+    personalShopperEnabled?: boolean;
+    activeClosersEnabled?: boolean;
   };
 }

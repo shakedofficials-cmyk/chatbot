@@ -1,4 +1,4 @@
-import type { Product, ProductInsight, SearchFilters } from "../../../shared/types.js";
+import type { Product, ProductInsight, SearchFilters, ShopperProfilePreferences } from "../../../shared/types.js";
 import { findBestVariantMatch, findSizeOptionValue } from "../size-resolution.js";
 import { normalizeText } from "../retrieval/normalize.js";
 
@@ -48,11 +48,7 @@ function categoryBadge(product: Product, filters: SearchFilters): { badge: strin
   if (!requested || !productType) return { badge: null, score: 0 };
 
   if (productType.includes(requested) || requested.includes(productType)) {
-    if (requested.includes("running")) return { badge: "Best for running", score: 60 };
-    if (requested.includes("basket")) return { badge: "Court ready", score: 60 };
-    if (requested.includes("training")) return { badge: "Training pick", score: 60 };
-    if (requested.includes("lifestyle")) return { badge: "Best for daily", score: 60 };
-    return { badge: titleCase(requested), score: 40 };
+    return { badge: titleCase(requested), score: 60 };
   }
 
   return { badge: null, score: -30 };
@@ -64,7 +60,7 @@ function sizeBadge(product: Product, filters: SearchFilters): { badge: string | 
   const match = findBestVariantMatch(product.variants, filters.size);
   if (match.exactMatchAvailable) {
     const rawSize = findSizeOptionValue(match.exactMatchAvailable.selectedOptions) ?? filters.size;
-    return { badge: `Size ${rawSize} in stock`, score: 100 };
+    return { badge: `Size ${rawSize} ready`, score: 100 };
   }
 
   if (match.exactMatch) {
@@ -96,7 +92,7 @@ function budgetBadge(product: Product, filters: SearchFilters): { badge: string 
   if (!Number.isFinite(price)) return { badge: null, score: 0 };
 
   return price <= filters.maxPrice
-    ? { badge: `Under $${filters.maxPrice}`, score: 25 }
+    ? { badge: `Best under $${filters.maxPrice}`, score: 25 }
     : { badge: null, score: -35 };
 }
 
@@ -120,8 +116,37 @@ function stockBadge(product: Product): { badge: string | null; score: number } {
   return { badge: null, score: Math.min(available.length, 12) };
 }
 
-function rankProduct(product: Product, filters: SearchFilters): RankedProduct {
+function profileBadge(
+  product: Product,
+  profile: ShopperProfilePreferences | undefined
+): { badge: string | null; score: number } {
+  if (!profile) return { badge: null, score: 0 };
+
+  const brandMatch = profile.favoriteBrands?.some((brand) =>
+    normalizeText(product.vendor) === normalizeText(brand)
+  );
+  const categoryMatch = profile.preferredCategories?.some((category) =>
+    normalizeText(product.productType).includes(normalizeText(category))
+  );
+  const colorMatch = profile.preferredColors?.some((color) =>
+    productMatchesRequestedColor(product, color)
+  );
+  const clickedMatch = profile.recentClickedHandles?.includes(product.handle);
+
+  if (brandMatch || categoryMatch || colorMatch || clickedMatch) {
+    return { badge: "Fits your profile", score: clickedMatch ? 55 : 35 };
+  }
+
+  return { badge: null, score: 0 };
+}
+
+function rankProduct(
+  product: Product,
+  filters: SearchFilters,
+  profile?: ShopperProfilePreferences
+): RankedProduct {
   const badges: string[] = [];
+  const matchReasons: string[] = [];
   let score = 0;
 
   for (const part of [
@@ -129,10 +154,14 @@ function rankProduct(product: Product, filters: SearchFilters): RankedProduct {
     categoryBadge(product, filters),
     colorBadge(product, filters),
     budgetBadge(product, filters),
+    profileBadge(product, profile),
     stockBadge(product),
   ]) {
     score += part.score;
-    if (part.badge && !badges.includes(part.badge)) badges.push(part.badge);
+    if (part.badge && !badges.includes(part.badge)) {
+      badges.push(part.badge);
+      matchReasons.push(part.badge);
+    }
   }
 
   score += brandScore(product, filters);
@@ -146,16 +175,19 @@ function rankProduct(product: Product, filters: SearchFilters): RankedProduct {
       handle: product.handle,
       badges: badges.slice(0, 4),
       reason: badges[0],
+      score: Math.round(score),
+      matchReasons,
     },
   };
 }
 
 export function rankProductsForRevenue(
   products: Product[],
-  filters: SearchFilters
+  filters: SearchFilters,
+  profile?: ShopperProfilePreferences
 ): { products: Product[]; insights: ProductInsight[] } {
   const ranked = products
-    .map((product, index) => ({ ...rankProduct(product, filters), index }))
+    .map((product, index) => ({ ...rankProduct(product, filters, profile), index }))
     .sort((a, b) => b.score - a.score || a.index - b.index);
 
   return {

@@ -1,4 +1,14 @@
-import type { CartAction, ChatAction, ChatResponse, PageContext, Product, ProductComparison, ProductInsight } from "../shared/types";
+import type {
+  CartAction,
+  ChatAction,
+  ChatResponse,
+  PageContext,
+  Product,
+  ProductComparison,
+  ProductInsight,
+  QuickReply,
+  ShopperProfileSummary,
+} from "../shared/types";
 import { buildGuidedSearchPrompt, GUIDED_STEPS, type GuidedAnswers } from "./guided-flow";
 import { detectPageContextFromUrl, nudgeCopyForPageContext } from "./page-context";
 
@@ -12,6 +22,8 @@ interface WidgetConfig {
   whatsappNumber?: string;
   whatsappEnabled: boolean;
   nudgeEnabled: boolean;
+  personalShopperEnabled: boolean;
+  activeClosersEnabled: boolean;
 }
 
 interface ShopifyThemeProduct {
@@ -39,6 +51,8 @@ function getConfig(): WidgetConfig {
     whatsappNumber: runtimeConfig?.whatsappNumber,
     whatsappEnabled: runtimeConfig?.whatsappEnabled !== false,
     nudgeEnabled: runtimeConfig?.nudgeEnabled !== false,
+    personalShopperEnabled: runtimeConfig?.personalShopperEnabled !== false,
+    activeClosersEnabled: runtimeConfig?.activeClosersEnabled !== false,
   };
 }
 
@@ -47,6 +61,19 @@ function createSessionId(): string {
     return crypto.randomUUID();
   }
   return `${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+}
+
+function getOrCreateShopperId(): string {
+  const key = "orjn_concierge_shopper_id";
+  try {
+    const existing = window.localStorage.getItem(key);
+    if (existing) return existing;
+    const next = `shopper_${createSessionId()}`;
+    window.localStorage.setItem(key, next);
+    return next;
+  } catch {
+    return `shopper_${createSessionId()}`;
+  }
 }
 
 function ensureStyles(): void {
@@ -369,6 +396,58 @@ function ensureStyles(): void {
       border-color: var(--orjn-volt);
       color: var(--orjn-volt);
       background: rgba(198, 255, 46, 0.04);
+    }
+
+    .orjn-memory {
+      display: none;
+      flex-wrap: wrap;
+      gap: 5px;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--orjn-border);
+      background: #101010;
+      flex-shrink: 0;
+    }
+
+    .orjn-memory.active {
+      display: flex;
+    }
+
+    .orjn-memory span {
+      padding: 4px 6px;
+      border: 1px solid rgba(198, 255, 46, 0.26);
+      color: var(--orjn-volt);
+      font-family: 'Inter', monospace;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .orjn-quick-replies {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 2px;
+    }
+
+    .orjn-quick-reply {
+      padding: 8px 10px;
+      border: 1px solid var(--orjn-border);
+      background: transparent;
+      color: var(--orjn-text);
+      cursor: pointer;
+      font-family: 'Inter', monospace;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .orjn-quick-reply:hover,
+    .orjn-quick-reply:focus-visible {
+      border-color: var(--orjn-volt);
+      color: var(--orjn-volt);
+      outline: none;
     }
 
     .orjn-guide {
@@ -1082,9 +1161,13 @@ const QUICK_QUERIES = [
 class ORJNConciergeWidget {
   private readonly config = getConfig();
   private readonly sessionId = createSessionId();
+  private readonly shopperId = getOrCreateShopperId();
   private readonly pageContext: PageContext = detectPageContextFromUrl(window.location.href);
 
   private cartId: string | null = null;
+  private cartHasItems = false;
+  private readonly clickedHandles = new Set<string>();
+  private readonly viewedHandles = new Set<string>();
   private lastMessage = "";
   private lastSubmittedText = "";
   private lastSubmittedAt = 0;
@@ -1098,6 +1181,7 @@ class ORJNConciergeWidget {
   private readonly launcherNudge: HTMLDivElement;
   private readonly launcher: HTMLButtonElement;
   private readonly panel: HTMLDivElement;
+  private readonly memoryStrip: HTMLDivElement;
   private readonly messages: HTMLDivElement;
   private readonly emptyState: HTMLDivElement;
   private readonly input: HTMLTextAreaElement;
@@ -1168,6 +1252,13 @@ class ORJNConciergeWidget {
 
     header.append(headerCopy, close);
 
+    this.memoryStrip = document.createElement("div");
+    this.memoryStrip.className = "orjn-memory";
+    const storedBadges = this.readStoredProfileBadges();
+    if (storedBadges.length > 0) {
+      this.updateMemoryStrip({ badges: storedBadges, preferences: {} });
+    }
+
     // ── Messages ──────────────────────────────────────────
     this.messages = document.createElement("div");
     this.messages.className = "orjn-messages";
@@ -1176,11 +1267,10 @@ class ORJNConciergeWidget {
     this.emptyState.className = "orjn-empty";
 
     const emptyTitle = document.createElement("strong");
-    emptyTitle.textContent = "Tell us what you want.";
+    emptyTitle.textContent = "Find your pair.";
 
     const emptyBody = document.createElement("p");
-    emptyBody.textContent =
-      "Ask for a shoe, size, color, or budget. We will show what is in stock and help you add it to cart.";
+    emptyBody.textContent = "Tell me the pair, size, color, or budget.";
 
     const chips = document.createElement("div");
     chips.className = "orjn-chips";
@@ -1213,6 +1303,12 @@ class ORJNConciergeWidget {
     this.cartStatusLink.className = "orjn-cart-link";
     this.cartStatusLink.href = this.getStoreCartUrl();
     this.cartStatusLink.textContent = "VIEW CART →";
+    this.cartStatusLink.addEventListener("click", () => {
+      void this.logAnalytics("checkout_started", {
+        cartHasItems: this.cartHasItems,
+        pageContext: this.pageContext,
+      });
+    });
     this.cartStatusBar.append(this.cartStatusText, this.cartStatusLink);
 
     // ── Input Area ────────────────────────────────────────
@@ -1238,11 +1334,52 @@ class ORJNConciergeWidget {
     this.sendButton.appendChild(createSendIcon());
 
     inputArea.append(this.input, this.sendButton);
-    this.panel.append(header, this.messages, this.errorBar, this.cartStatusBar, inputArea);
+    this.panel.append(header, this.memoryStrip, this.messages, this.errorBar, this.cartStatusBar, inputArea);
     this.shell.append(this.launcherNudge, this.launcher, this.panel);
     container.appendChild(this.shell);
 
     this.setupViewportHandler();
+  }
+
+  private readStoredProfileBadges(): string[] {
+    if (!this.config.personalShopperEnabled) return [];
+    try {
+      const raw = window.localStorage.getItem("orjn_concierge_profile_badges");
+      const parsed = raw ? JSON.parse(raw) as unknown : null;
+      return Array.isArray(parsed)
+        ? parsed.filter((entry): entry is string => typeof entry === "string").slice(0, 4)
+        : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private updateMemoryStrip(profile: ShopperProfileSummary | undefined): void {
+    if (!this.config.personalShopperEnabled || !profile?.badges.length) return;
+    this.memoryStrip.replaceChildren();
+    profile.badges.slice(0, 4).forEach((badge) => {
+      const item = document.createElement("span");
+      item.textContent = badge;
+      this.memoryStrip.appendChild(item);
+    });
+    this.memoryStrip.classList.add("active");
+    try {
+      window.localStorage.setItem("orjn_concierge_profile_badges", JSON.stringify(profile.badges.slice(0, 4)));
+    } catch {
+      // Local storage is optional.
+    }
+  }
+
+  private buildClientSignals(): {
+    clickedHandles: string[];
+    viewedHandles: string[];
+    cartHasItems: boolean;
+  } {
+    return {
+      clickedHandles: Array.from(this.clickedHandles).slice(-20),
+      viewedHandles: Array.from(this.viewedHandles).slice(-20),
+      cartHasItems: this.cartHasItems,
+    };
   }
 
   private setupViewportHandler(): void {
@@ -1308,10 +1445,11 @@ class ORJNConciergeWidget {
     try {
       await this.addToThemeCart(variantId);
       await this.syncBackendCart(product, variantId, sizeLabel);
-      void this.logAnalytics("add_to_cart", { productHandle: product.handle, variantId });
+      this.cartHasItems = true;
+      void this.logAnalytics("add_to_cart", { productHandle: product.handle, variantId, sizeLabel, cartHasItems: true });
       this.refreshThemeCartCount();
       this.hideError();
-      this.showCartStatus(`${product.title} added to cart.`);
+      this.showCartStatus("Added. Checkout or keep looking?");
       btn.classList.remove("adding");
       btn.disabled = false;
     } catch (error) {
@@ -1323,14 +1461,17 @@ class ORJNConciergeWidget {
           if (liveVariantId && liveVariantId !== variantId) {
             await this.addToThemeCart(liveVariantId);
             await this.syncBackendCart(product, liveVariantId, sizeLabel);
+            this.cartHasItems = true;
             void this.logAnalytics("add_to_cart", {
               productHandle: product.handle,
               variantId: liveVariantId,
+              sizeLabel,
+              cartHasItems: true,
               recoveredFromStaleVariant: true,
             });
             this.refreshThemeCartCount();
             this.hideError();
-            this.showCartStatus(`${product.title} added to cart.`);
+            this.showCartStatus("Added. Checkout or keep looking?");
             btn.classList.remove("adding");
             btn.disabled = false;
             return;
@@ -1534,6 +1675,7 @@ class ORJNConciergeWidget {
         body: JSON.stringify({
           sessionId: this.sessionId,
           name,
+          shopperId: this.config.personalShopperEnabled ? this.shopperId : undefined,
           payload: { ...payload, shopDomain: this.config.shopDomain },
         }),
       });
@@ -1602,6 +1744,8 @@ class ORJNConciergeWidget {
     card.setAttribute("aria-label", `Open ${product.title}`);
 
     const openProductPage = () => {
+      this.clickedHandles.add(product.handle);
+      this.viewedHandles.add(product.handle);
       void this.logAnalytics("product_clicked", { productHandle: product.handle, source: "product_card" });
       if (insight) {
         void this.logAnalytics("recommendation_clicked", {
@@ -1682,6 +1826,7 @@ class ORJNConciergeWidget {
 
     const sizeVariants = this.getProductSizeVariants(product);
     const action = createButton("SECURE PAIR →", "orjn-product-btn", () => {
+      this.clickedHandles.add(product.handle);
       void this.logAnalytics("product_clicked", { productHandle: product.handle });
 
       // Toggle size grid
@@ -1707,6 +1852,12 @@ class ORJNConciergeWidget {
         if (available) {
           sizeBtn.addEventListener("click", (e) => {
             e.stopPropagation();
+            void this.logAnalytics("size_selected", {
+              productHandle: product.handle,
+              variantId,
+              sizeLabel: label,
+              cartHasItems: this.cartHasItems,
+            });
             void this.addToCartDirect(product, variantId, label, sizeBtn);
           });
         }
@@ -1777,14 +1928,36 @@ class ORJNConciergeWidget {
     return wrapper;
   }
 
-  private renderViewAllLink(viewAllUrl: string): HTMLAnchorElement {
+  private renderViewAllLink(viewAllUrl: string, productHandles: string[] = []): HTMLAnchorElement {
     const viewAll = document.createElement("a");
     viewAll.className = "orjn-view-all-btn";
     viewAll.href = viewAllUrl;
     viewAll.target = "_blank";
     viewAll.rel = "noopener noreferrer";
     viewAll.textContent = "VIEW MORE ON ORJN";
+    viewAll.addEventListener("click", () => {
+      void this.logAnalytics("view_all_clicked", {
+        viewAllUrl,
+        productHandles,
+        pageContext: this.pageContext,
+        cartHasItems: this.cartHasItems,
+      });
+    });
     return viewAll;
+  }
+
+  private renderQuickReplies(quickReplies: QuickReply[] | undefined): HTMLElement | null {
+    if (!this.config.activeClosersEnabled || !quickReplies?.length) return null;
+
+    const wrap = document.createElement("div");
+    wrap.className = "orjn-quick-replies";
+    quickReplies.slice(0, 4).forEach((reply) => {
+      const button = createButton(reply.label, "orjn-quick-reply", () => {
+        void this.submitText(reply.prompt);
+      });
+      wrap.appendChild(button);
+    });
+    return wrap;
   }
 
   private appendAssistantPayload(
@@ -1794,7 +1967,8 @@ class ORJNConciergeWidget {
     comparison?: ProductComparison,
     cartAction?: CartAction,
     actions?: ChatAction[],
-    viewAllUrl?: string
+    viewAllUrl?: string,
+    quickReplies?: QuickReply[]
   ): void {
     const msgEl = this.appendTextMessage("assistant", text);
 
@@ -1805,11 +1979,7 @@ class ORJNConciergeWidget {
       products.slice(0, 5).forEach((p) => stack.appendChild(this.renderProduct(p, insightByHandle.get(p.handle))));
 
       if (viewAllUrl) {
-        const viewAll = document.createElement("a");
-        viewAll.className = "orjn-view-all-btn";
-        viewAll.href = viewAllUrl;
-        viewAll.target = "_blank";
-        viewAll.rel = "noopener noreferrer";
+        const viewAll = this.renderViewAllLink(viewAllUrl, products.map((product) => product.handle));
         viewAll.textContent = "VIEW MORE ON ORJN →";
         stack.appendChild(viewAll);
       }
@@ -1818,6 +1988,9 @@ class ORJNConciergeWidget {
     } else if (viewAllUrl) {
       this.messages.appendChild(this.renderViewAllLink(viewAllUrl));
     }
+
+    const quickReplyEl = this.renderQuickReplies(quickReplies);
+    if (quickReplyEl) this.messages.appendChild(quickReplyEl);
 
     if (comparison) {
       this.messages.appendChild(this.renderComparison(comparison));
@@ -1974,6 +2147,8 @@ class ORJNConciergeWidget {
         pageContext: this.pageContext,
         cartId: this.cartId ?? undefined,
         whatsappNumber: this.config.whatsappEnabled ? this.config.whatsappNumber : undefined,
+        shopperId: this.config.personalShopperEnabled ? this.shopperId : undefined,
+        clientSignals: this.config.personalShopperEnabled ? this.buildClientSignals() : undefined,
       };
 
       const response = await fetch(`${this.config.apiBaseUrl}/api/chat`, {
@@ -1991,6 +2166,7 @@ class ORJNConciergeWidget {
 
       const payload = (await response.json()) as ChatResponse;
       if (payload.cartId) this.cartId = payload.cartId;
+      this.updateMemoryStrip(payload.shopperProfile);
 
       typing.remove();
       this.appendAssistantPayload(
@@ -2000,7 +2176,8 @@ class ORJNConciergeWidget {
         payload.message.comparison,
         payload.message.cartAction,
         payload.message.actions,
-        payload.message.viewAllUrl
+        payload.message.viewAllUrl,
+        payload.message.quickReplies
       );
     } catch (error) {
       typing.remove();

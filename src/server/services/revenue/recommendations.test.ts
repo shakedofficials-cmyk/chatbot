@@ -66,11 +66,39 @@ describe("rankProductsForRevenue", () => {
 
     expect(result.products[0].handle).toBe("lifestyle-exact");
     expect(result.insights[0].badges).toEqual(expect.arrayContaining([
-      "Size 44 in stock",
-      "Best for daily",
+      "Size 44 ready",
+      "Lifestyle",
       "Black match",
-      "Under $200",
+      "Best under $200",
     ]));
+  });
+
+  it("boosts products that fit the anonymous shopper profile", () => {
+    const puma = product({
+      handle: "puma-runner",
+      title: "PUMA Runner",
+      productType: "Running",
+      vendor: "PUMA",
+      variants: [variant("44")],
+    });
+    const nike = product({
+      handle: "nike-lifestyle",
+      title: "Nike Air Force Black",
+      productType: "Lifestyle",
+      vendor: "Nike",
+      variants: [variant("44")],
+    });
+
+    const result = rankProductsForRevenue([puma, nike], { size: "44" }, {
+      favoriteBrands: ["Nike"],
+      preferredCategories: ["Lifestyle"],
+      preferredColors: ["black"],
+    });
+
+    expect(result.products[0].handle).toBe("nike-lifestyle");
+    expect(result.insights[0].badges).toContain("Fits your profile");
+    expect(result.insights[0].score).toBeGreaterThan(0);
+    expect(result.insights[0].matchReasons).toContain("Fits your profile");
   });
 
   it("marks low stock", () => {

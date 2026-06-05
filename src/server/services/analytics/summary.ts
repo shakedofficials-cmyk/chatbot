@@ -12,11 +12,18 @@ interface CounterEntry {
 export interface AnalyticsSummary {
   totalEvents: number;
   counts: Record<string, number>;
+  conversionFunnel: Record<string, number>;
   topSearches: CounterEntry[];
+  lowConfidenceSearches: CounterEntry[];
   noResultSearches: CounterEntry[];
+  topNoResultDemand: CounterEntry[];
   requestedSizes: CounterEntry[];
+  topProfileSizes: CounterEntry[];
   requestedColors: CounterEntry[];
   requestedTypes: CounterEntry[];
+  addToCartByQuery: CounterEntry[];
+  checkoutStartsByQuery: CounterEntry[];
+  whatsappRecoveryClicks: number;
 }
 
 function parsePayload(payload: RawEvent["payload"]): Record<string, unknown> {
@@ -54,24 +61,56 @@ function filterValue(payload: Record<string, unknown>, key: string): unknown {
 
 export function summarizeAnalyticsEvents(events: RawEvent[]): AnalyticsSummary {
   const counts: Record<string, number> = {};
+  const conversionFunnel: Record<string, number> = {};
   const searches = new Map<string, number>();
+  const lowConfidence = new Map<string, number>();
   const noResults = new Map<string, number>();
   const sizes = new Map<string, number>();
+  const profileSizes = new Map<string, number>();
   const colors = new Map<string, number>();
   const types = new Map<string, number>();
+  const addToCartQueries = new Map<string, number>();
+  const checkoutQueries = new Map<string, number>();
+  let whatsappRecoveryClicks = 0;
+  const funnelEvents = new Set([
+    "chat_opened",
+    "product_search",
+    "product_clicked",
+    "recommendation_clicked",
+    "add_to_cart",
+    "checkout_started",
+    "whatsapp_clicked",
+  ]);
 
   for (const event of events) {
     counts[event.name] = (counts[event.name] ?? 0) + 1;
+    if (funnelEvents.has(event.name)) {
+      conversionFunnel[event.name] = (conversionFunnel[event.name] ?? 0) + 1;
+    }
     const payload = parsePayload(event.payload);
 
     if (event.name === "product_search") {
       bump(searches, payload.query);
     }
+    if (event.name === "low_confidence_search") {
+      bump(lowConfidence, payload.query);
+    }
     if (event.name === "no_result") {
       bump(noResults, payload.query);
     }
+    if (event.name === "add_to_cart") {
+      bump(addToCartQueries, payload.query ?? payload.lastQuery ?? payload.productHandle);
+    }
+    if (event.name === "checkout_started") {
+      bump(checkoutQueries, payload.query ?? payload.lastQuery ?? payload.productHandle);
+    }
+    if (event.name === "whatsapp_clicked" || event.name === "cart_recovery_clicked") {
+      whatsappRecoveryClicks += 1;
+    }
 
     bump(sizes, filterValue(payload, "size"));
+    bump(sizes, payload.sizeLabel);
+    bump(profileSizes, payload.preferredSize ?? payload.sizeLabel ?? filterValue(payload, "size"));
     bump(colors, filterValue(payload, "color"));
     bump(types, filterValue(payload, "category") ?? filterValue(payload, "productType") ?? filterValue(payload, "type"));
   }
@@ -79,10 +118,17 @@ export function summarizeAnalyticsEvents(events: RawEvent[]): AnalyticsSummary {
   return {
     totalEvents: events.length,
     counts,
+    conversionFunnel,
     topSearches: top(searches),
+    lowConfidenceSearches: top(lowConfidence),
     noResultSearches: top(noResults),
+    topNoResultDemand: top(noResults),
     requestedSizes: top(sizes),
+    topProfileSizes: top(profileSizes),
     requestedColors: top(colors),
     requestedTypes: top(types),
+    addToCartByQuery: top(addToCartQueries),
+    checkoutStartsByQuery: top(checkoutQueries),
+    whatsappRecoveryClicks,
   };
 }

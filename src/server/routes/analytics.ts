@@ -4,12 +4,14 @@ import { logEvent } from "../services/analytics/index.js";
 import { summarizeAnalyticsEvents } from "../services/analytics/summary.js";
 import { prisma } from "../db/client.js";
 import { env } from "../config.js";
+import { mergeShopperProfile } from "../services/shopper/profile.js";
 
 const router = Router();
 
 const eventSchema = z.object({
   sessionId: z.string().min(1).max(128),
   name: z.string().min(1).max(64),
+  shopperId: z.string().min(1).max(128).optional(),
   payload: z.record(z.unknown()).optional(),
 });
 
@@ -21,8 +23,13 @@ router.post("/event", async (req: Request, res: Response) => {
       return;
     }
 
-    const { sessionId, name, payload } = parsed.data;
-    await logEvent(sessionId, name, payload ?? {});
+    const { sessionId, name, shopperId, payload } = parsed.data;
+    await logEvent(sessionId, name, { ...(payload ?? {}), shopperId });
+    await mergeShopperProfile(shopperId, {
+      eventName: name,
+      payload: payload ?? {},
+      cartHasItems: name === "add_to_cart" || Boolean(payload?.cartHasItems),
+    });
     res.json({ ok: true });
   } catch (err) {
     console.error("Analytics error:", err);

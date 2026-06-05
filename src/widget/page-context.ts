@@ -37,19 +37,19 @@ export function nudgeCopyForPageContext(context: PageContext): NudgeCopy {
   if (context.type === "product") {
     return {
       title: "Need your size?",
-      text: "Ask about fit, stock, or similar pairs.",
+      text: "Need your size in this pair?",
     };
   }
 
   if (context.type === "collection" || context.type === "search") {
     return {
       title: "Filter faster",
-      text: "Tell us your size, color, or budget.",
+      text: "Want this filtered by size or color?",
     };
   }
 
   return {
     title: "Ask ORJN",
-    text: "Ask ORJN to find your pair.",
+    text: "Your size. Live stock. Fast.",
   };
 }

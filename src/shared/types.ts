@@ -181,12 +181,42 @@ export interface ProductInsight {
   handle: string;
   badges: string[];
   reason?: string;
+  score?: number;
+  matchReasons?: string[];
 }
 
 export interface ChatAction {
   type: "whatsapp";
   label: string;
   url: string;
+}
+
+export interface QuickReply {
+  label: string;
+  prompt: string;
+}
+
+export interface ShoppingMission {
+  confidence: number;
+  missingSlots: string[];
+}
+
+export interface ShopperProfilePreferences {
+  preferredSize?: string;
+  preferredGender?: string;
+  preferredBudget?: number;
+  favoriteBrands?: string[];
+  avoidedBrands?: string[];
+  preferredColors?: string[];
+  preferredCategories?: string[];
+  recentClickedHandles?: string[];
+  recentViewedHandles?: string[];
+  recentCartIntent?: string;
+}
+
+export interface ShopperProfileSummary {
+  badges: string[];
+  preferences: ShopperProfilePreferences;
 }
 
 // ── Comparison types ──
@@ -215,6 +245,8 @@ export interface ChatMessage {
   cartAction?: CartAction;
   actions?: ChatAction[];
   viewAllUrl?: string;
+  quickReplies?: QuickReply[];
+  mission?: ShoppingMission;
   timestamp: number;
 }
 
@@ -233,12 +265,19 @@ export interface ChatRequest {
   cartId?: string;
   pageContext?: PageContext;
   whatsappNumber?: string;
+  shopperId?: string;
+  clientSignals?: {
+    clickedHandles?: string[];
+    viewedHandles?: string[];
+    cartHasItems?: boolean;
+  };
 }
 
 export interface ChatResponse {
   sessionId: string;
   message: ChatMessage;
   cartId?: string;
+  shopperProfile?: ShopperProfileSummary;
 }
 
 // ── Analytics types ──
@@ -259,6 +298,9 @@ export type AnalyticsEventName =
   | "recommendation_clicked"
   | "whatsapp_clicked"
   | "cart_recovery_clicked"
+  | "view_all_clicked"
+  | "size_selected"
+  | "low_confidence_search"
   | "size_availability_requested";
 
 export interface AnalyticsEvent {
