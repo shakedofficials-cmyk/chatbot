@@ -125,4 +125,14 @@ describe("buildFilteredSearchUrl", () => {
     expect(url.searchParams.get("filter.p.m.custom.color")).toBe("Red");
     expect(url.searchParams.has("filter.p.product_type")).toBe(false);
   });
+
+  it("keeps kids audience filters in View More URLs", () => {
+    const url = new URL(
+      buildFilteredSearchUrl("kids", { gender: "kids", tags: "kids", inStock: true })
+    );
+
+    expect(url.searchParams.get("q")).toBe("kids");
+    expect(url.searchParams.get("filter.v.availability")).toBe("1");
+    expect(url.searchParams.get("filter.p.m.custom.gender")).toBe("Kids");
+  });
 });

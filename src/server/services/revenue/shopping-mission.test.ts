@@ -38,6 +38,54 @@ describe("shopping mission", () => {
     });
   });
 
+  it("does not force profile size or style into explicit shopper searches", () => {
+    const profile = {
+      preferredSize: "43",
+      preferredBudget: 250,
+      preferredGender: "men",
+      favoriteBrands: ["Nike"],
+      preferredCategories: ["basketball"],
+      preferredColors: ["green"],
+    };
+
+    const womenAsics = applyProfileToUnderstanding(
+      understanding({
+        normalizedQuery: "show me women asics",
+        filters: { brand: "Asics", gender: "women", tags: "women" },
+      }),
+      profile
+    );
+    const kids = applyProfileToUnderstanding(
+      understanding({
+        normalizedQuery: "show me some kids shoes",
+        filters: { category: "shoe", gender: "kids", tags: "kids" },
+      }),
+      profile
+    );
+
+    expect(womenAsics.filters).toMatchObject({ brand: "Asics", gender: "women" });
+    expect(womenAsics.filters.size).toBeUndefined();
+    expect(womenAsics.filters.color).toBeUndefined();
+    expect(kids.filters).toMatchObject({ category: "shoe", gender: "kids" });
+    expect(kids.filters.size).toBeUndefined();
+    expect(kids.filters.brand).toBeUndefined();
+    expect(kids.filters.color).toBeUndefined();
+  });
+
+  it("uses profile size when the shopper explicitly asks for their saved size", () => {
+    const result = applyProfileToUnderstanding(
+      understanding({
+        normalizedQuery: "show me asics in my size",
+        filters: { brand: "Asics" },
+      }),
+      { preferredSize: "43", favoriteBrands: ["Nike"] }
+    );
+
+    expect(result.filters.brand).toBe("Asics");
+    expect(result.filters.size).toBe("43");
+    expect(result.filters.color).toBeUndefined();
+  });
+
   it("asks one sharp question for vague missions", () => {
     const mission = buildShoppingMission(understanding({ filters: { size: "44" } }));
 
@@ -69,5 +117,13 @@ describe("shopping mission", () => {
       "Show similar",
       "Ask WhatsApp",
     ]);
+    expect(replies[0]).toMatchObject({
+      prompt: "Add size 44 to cart for a",
+      action: {
+        type: "add_to_cart",
+        productHandle: "a",
+        size: "44",
+      },
+    });
   });
 });

@@ -86,6 +86,29 @@ describe("Query Understanding", () => {
     expect(result.entities.searchTerm).toBe("football");
   });
 
+  it("understands On Cloud without treating every 'on' as a brand", async () => {
+    const { understandCatalogQuery } = await import("./query-understanding.js");
+
+    const result = await understandCatalogQuery("what women on cloud shoes do you have");
+    const sale = await understandCatalogQuery("what do you have on sale");
+
+    expect(result.filters.brand).toBe("On");
+    expect(result.filters.model).toBe("cloud");
+    expect(result.filters.gender).toBe("women");
+    expect(result.entities.searchTerm).toBe("cloud");
+    expect(sale.filters.brand).toBeUndefined();
+  });
+
+  it("extracts kids as an audience filter instead of using adult memory", async () => {
+    const { understandCatalogQuery } = await import("./query-understanding.js");
+
+    const result = await understandCatalogQuery("show me some kids shoes");
+
+    expect(result.filters.gender).toBe("kids");
+    expect(result.filters.tags).toBe("kids");
+    expect(result.filters.model).toBeUndefined();
+  });
+
   it("routes policy and authenticity questions away from product search", async () => {
     const { understandCatalogQuery } = await import("./query-understanding.js");
 

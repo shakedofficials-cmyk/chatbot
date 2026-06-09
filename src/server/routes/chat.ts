@@ -78,7 +78,7 @@ function mergePreferences(
 }
 
 function addRevenueCloser(reply: string, size: string | undefined, productCount: number): string {
-  if (!size || productCount === 0 || new RegExp(`want\\s+size\\s+${size}\\b`, "i").test(reply)) {
+  if (!size || productCount === 0 || /\bwant\b/i.test(reply)) {
     return reply;
   }
   return `${reply.replace(/\s+$/, "")} Want size ${size}?`;
@@ -112,6 +112,39 @@ function formatInStockIntro(filters: SearchFilters): string {
   return parts.length > 1
     ? `Here's what's in stock for ${parts.join(" ")}.`
     : "Here's what's in stock.";
+}
+
+function stripSearchCommandWords(value: string): string {
+  return value
+    .replace(/^(show\s+me|show|i\s+want|want|find\s+me|find|get\s+me|get|i\s+need|need|look\s+for|looking\s+for|search\s+for|search|give\s+me|give)\s+/i, "")
+    .replace(/\b(?:size|eu)\s*\d{1,2}(?:\.\d)?\b/gi, "")
+    .replace(/\s+(options|shoes|sneakers|pairs|products|items)$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function compactStorefrontSearchTerm(understanding: Awaited<ReturnType<typeof understandCatalogQuery>>): string {
+  const filters = understanding.filters;
+  const rawSearchTerm =
+    understanding.entities.searchTerm ??
+    understanding.entities.silhouette ??
+    understanding.entities.model ??
+    understanding.entities.brand ??
+    understanding.entities.category ??
+    understanding.normalizedQuery;
+  const cleaned = stripSearchCommandWords(rawSearchTerm) || rawSearchTerm;
+
+  if (filters.silhouette) return filters.silhouette;
+  if (filters.model) return filters.model;
+  if (filters.brand && !filters.category && !filters.productType) return filters.brand;
+
+  const category = filters.category ?? filters.productType;
+  if (category && !isGenericShoeCategory(category)) return category;
+
+  if (filters.gender === "kids" || filters.tags === "kids") return "kids";
+  if (filters.color && cleaned.toLowerCase().includes(filters.color.toLowerCase())) return filters.color;
+
+  return cleaned;
 }
 
 function hasExactRequestedSize(products: Product[], size: string | undefined): boolean {
@@ -342,18 +375,7 @@ router.post("/", async (req: Request, res: Response) => {
 
     // Use the cleanest detected term for the "View More" search URL.
     // If no specific entity was extracted, strip common intent prefixes from the normalized query.
-    const rawSearchTerm =
-      understanding.entities.searchTerm ??
-      understanding.entities.silhouette ??
-      understanding.entities.model ??
-      understanding.entities.brand ??
-      understanding.entities.category ??
-      understanding.normalizedQuery;
-    const searchTerm = rawSearchTerm
-      .replace(/^(show\s+me|show|i\s+want|want|find\s+me|find|get\s+me|get|i\s+need|need|look\s+for|looking\s+for|search\s+for|search|give\s+me|give)\s+/i, "")
-      .replace(/\b(?:size|eu)\s*\d{1,2}(?:\.\d)?\b/gi, "")
-      .replace(/\s+(options|shoes|sneakers|pairs|products|items)$/i, "")
-      .trim() || rawSearchTerm;
+    const searchTerm = compactStorefrontSearchTerm(understanding);
 
     let ranked = rankProductsForRevenue(
       applyStrictResultFilters(result.products, understanding.filters),
@@ -382,21 +404,24 @@ router.post("/", async (req: Request, res: Response) => {
     if (products.length === 0 && understanding.filters.size) {
       const alternatives = await findClosestSizeAlternatives(searchTerm, understanding.filters, sessionId);
       if (alternatives.length > 0) {
-        ranked = rankProductsForRevenue(
-          applyStrictResultFilters(alternatives, understanding.filters),
-          understanding.filters,
-          shopperProfile
-        );
-        products = ranked.products;
-        productInsights = ranked.insights;
-        if (hasExactRequestedSize(products, understanding.filters.size)) {
-          responseContent = formatInStockIntro(understanding.filters);
-          viewAllFilters = understanding.filters;
-          shouldAddCloser = true;
-        } else {
-          responseContent = `I didn't find size ${understanding.filters.size} exactly. These are the closest in-stock options I found.`;
-          viewAllFilters = { ...understanding.filters, size: undefined, inStock: true };
-          shouldAddCloser = false;
+        const strictAlternatives = applyStrictResultFilters(alternatives, understanding.filters);
+        if (strictAlternatives.length > 0) {
+          ranked = rankProductsForRevenue(
+            strictAlternatives,
+            understanding.filters,
+            shopperProfile
+          );
+          products = ranked.products;
+          productInsights = ranked.insights;
+          if (hasExactRequestedSize(products, understanding.filters.size)) {
+            responseContent = formatInStockIntro(understanding.filters);
+            viewAllFilters = understanding.filters;
+            shouldAddCloser = true;
+          } else {
+            responseContent = `I didn't find size ${understanding.filters.size} exactly. These are the closest in-stock options I found.`;
+            viewAllFilters = { ...understanding.filters, size: undefined, inStock: true };
+            shouldAddCloser = false;
+          }
         }
       }
     }

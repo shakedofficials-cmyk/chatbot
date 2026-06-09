@@ -107,7 +107,7 @@ const AI_QUERY_SCHEMA = {
     silhouette: { type: ["string", "null"] },
     category: { type: ["string", "null"] },
     color: { type: ["string", "null"] },
-    gender: { type: ["string", "null"], enum: ["men", "women", null] },
+    gender: { type: ["string", "null"], enum: ["men", "women", "kids", null] },
     size: { type: ["string", "null"] },
     minPrice: { type: ["number", "null"] },
     maxPrice: { type: ["number", "null"] },
@@ -131,7 +131,7 @@ Rules:
 - Football/soccer means football/soccer shoes. Do not map it to running or training. If the store has no football products, leave the result empty and let the system offer WhatsApp.
 - Do not infer parent brands that the customer did not type. If they write "Way of Wade", brand is null unless they also write "Li-Ning".
 - Use category only for use cases/types like lifestyle, running, basketball, football/soccer, training.
-- Use gender only for men/women requests.
+- Use gender only for men/women/kids requests.
 - Use USD prices only. "under 250" means maxPrice 250.
 - inStock is true for explicit stock/availability/size requests and normal product-finding requests.`;
 
@@ -167,6 +167,16 @@ function extractPriceFilters(normalizedQuery: string): Pick<SearchFilters, "minP
     minPrice: minMatch ? Number(minMatch[1]) : undefined,
     maxPrice: maxMatch ? Number(maxMatch[1]) : undefined,
   };
+}
+
+function containsPhrase(normalizedQuery: string, phrase: string): boolean {
+  const escaped = normalizeText(phrase).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (!escaped) return false;
+  return new RegExp(`(^|[\\s_./-])${escaped}([\\s_./-]|$)`, "i").test(normalizedQuery);
+}
+
+function isOnBrandQuery(normalizedQuery: string): boolean {
+  return /\bon\s+(?:cloud|cloudmonster|cloudrunner|cloudswift|cloudtilt|cloudsurfer|cloudnova|cloudgo|cloudstratus|cloudpulse|running)\b/i.test(normalizedQuery);
 }
 
 function extractSize(normalizedQuery: string): string | undefined {
@@ -283,6 +293,13 @@ function cleanCatalogModel(value: unknown, filters: SearchFilters): string | und
     "sneaker",
     "sneakers",
     "friend",
+    "kid",
+    "kids",
+    "child",
+    "children",
+    "youth",
+    "boys",
+    "girls",
     normalizeText(filters.size),
     normalizeText(filters.color),
     normalizeText(category),
@@ -410,17 +427,20 @@ function mergeAiUnderstanding(
       effectiveModel &&
       normalizeText(brand) === normalizeText(effectiveModel)
   );
+  const brandAppearsSafely = brand === "on"
+    ? isOnBrandQuery(fallback.normalizedQuery)
+    : appearsInQuery(query, brand);
   const mergedFilters: SearchFilters = {
     ...fallback.filters,
-    brand: brand && !brandDuplicatesModel && appearsInQuery(query, brand)
+    brand: brand && !brandDuplicatesModel && brandAppearsSafely
       ? titleCase(brand)
       : fallback.filters.brand,
     model: effectiveModel,
     silhouette: silhouette ?? fallback.filters.silhouette,
     category,
     color: color ?? fallback.filters.color,
-    gender: gender === "men" || gender === "women" ? gender : fallback.filters.gender,
-    tags: gender === "men" || gender === "women" ? gender : fallback.filters.tags,
+    gender: ["men", "women", "kids"].includes(gender ?? "") ? gender : fallback.filters.gender,
+    tags: ["men", "women", "kids"].includes(gender ?? "") ? gender : fallback.filters.tags,
     size: size ?? fallback.filters.size,
     minPrice: cleanNumber(ai.minPrice) ?? fallback.filters.minPrice,
     maxPrice: cleanNumber(ai.maxPrice) ?? fallback.filters.maxPrice,
@@ -455,9 +475,15 @@ export async function understandCatalogQuery(
   const normalizedQuery = normalizeText(normalizeShopperLanguage(query));
   const intent = detectIntent(normalizedQuery);
 
-  const brand =
-    (await findCanonicalSynonym(normalizedQuery, "brand")) ??
-    DEFAULT_BRANDS.find((entry) => normalizedQuery.includes(entry));
+  const synonymBrand = await findCanonicalSynonym(normalizedQuery, "brand");
+  const brand = synonymBrand === "on" && !isOnBrandQuery(normalizedQuery)
+    ? undefined
+    : synonymBrand ??
+      DEFAULT_BRANDS.find((entry) =>
+        entry === "on"
+          ? isOnBrandQuery(normalizedQuery)
+          : containsPhrase(normalizedQuery, entry)
+      );
 
   const category =
     (await findCanonicalSynonym(normalizedQuery, "category")) ??
@@ -471,9 +497,13 @@ export async function understandCatalogQuery(
 
   // Gender — "men" / "women" / "male" / "female" are Shopify product tags, not model names.
   // Detect them here so they become a tags filter instead of polluting the model field.
-  const genderMatch = normalizedQuery.match(/\b(men|women|male|female|mens|womens|men's|women's)\b/);
+  const genderMatch = normalizedQuery.match(/\b(men|women|male|female|mens|womens|men's|women's|kid|kids|child|children|youth|boys|girls|gs)\b/);
   const genderTag = genderMatch
-    ? genderMatch[1].startsWith("men") ? "men" : "women"
+    ? /^(kid|kids|child|children|youth|boys|girls|gs)$/i.test(genderMatch[1])
+      ? "kids"
+      : genderMatch[1].startsWith("men") || genderMatch[1] === "male" || genderMatch[1] === "mens"
+        ? "men"
+        : "women"
     : undefined;
   const normalizedCategory = category === "basket" ? "basketball" : category;
 
@@ -487,6 +517,14 @@ export async function understandCatalogQuery(
     "women",
     "mens",
     "womens",
+    "kid",
+    "kids",
+    "child",
+    "children",
+    "youth",
+    "boys",
+    "girls",
+    "gs",
     "size",
     "under",
     "below",

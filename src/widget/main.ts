@@ -1168,6 +1168,7 @@ class ORJNConciergeWidget {
   private cartHasItems = false;
   private readonly clickedHandles = new Set<string>();
   private readonly viewedHandles = new Set<string>();
+  private readonly latestProductsByHandle = new Map<string, Product>();
   private lastMessage = "";
   private lastSubmittedText = "";
   private lastSubmittedAt = 0;
@@ -1431,6 +1432,28 @@ class ORJNConciergeWidget {
       result.push({ label, variantId: variant.id, available: variant.availableForSale });
     }
     return result;
+  }
+
+  private sizeNumber(value: string): number | null {
+    const match = value.replace(",", ".").match(/(\d+(?:\.\d+)?)/);
+    if (!match) return null;
+    const number = Number(match[1]);
+    return Number.isFinite(number) ? number : null;
+  }
+
+  private findAvailableSizeVariant(
+    product: Product,
+    requestedSize: string
+  ): { label: string; variantId: string } | null {
+    const requested = requestedSize.trim().toLowerCase();
+    const requestedNumber = this.sizeNumber(requestedSize);
+    const available = this.getProductSizeVariants(product).filter((variant) => variant.available);
+
+    return available.find((variant) => variant.label.trim().toLowerCase() === requested) ??
+      available.find((variant) =>
+        requestedNumber != null && this.sizeNumber(variant.label) === requestedNumber
+      ) ??
+      null;
   }
 
   private async addToCartDirect(
@@ -1952,7 +1975,30 @@ class ORJNConciergeWidget {
     const wrap = document.createElement("div");
     wrap.className = "orjn-quick-replies";
     quickReplies.slice(0, 4).forEach((reply) => {
-      const button = createButton(reply.label, "orjn-quick-reply", () => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "orjn-quick-reply";
+      button.textContent = reply.label;
+      button.addEventListener("click", () => {
+        if (reply.action?.type === "add_to_cart") {
+          const product = this.latestProductsByHandle.get(reply.action.productHandle);
+          const variant = product
+            ? this.findAvailableSizeVariant(product, reply.action.size)
+            : null;
+          if (product && variant) {
+            this.clickedHandles.add(product.handle);
+            void this.logAnalytics("size_selected", {
+              productHandle: product.handle,
+              variantId: variant.variantId,
+              sizeLabel: variant.label,
+              source: "quick_reply",
+              cartHasItems: this.cartHasItems,
+            });
+            void this.addToCartDirect(product, variant.variantId, variant.label, button);
+            return;
+          }
+        }
+
         void this.submitText(reply.prompt);
       });
       wrap.appendChild(button);
@@ -1976,7 +2022,10 @@ class ORJNConciergeWidget {
       const stack = document.createElement("div");
       stack.className = "orjn-stack";
       const insightByHandle = new Map((productInsights ?? []).map((entry) => [entry.handle, entry]));
-      products.slice(0, 5).forEach((p) => stack.appendChild(this.renderProduct(p, insightByHandle.get(p.handle))));
+      products.slice(0, 5).forEach((p) => {
+        this.latestProductsByHandle.set(p.handle, p);
+        stack.appendChild(this.renderProduct(p, insightByHandle.get(p.handle)));
+      });
 
       if (viewAllUrl) {
         const viewAll = this.renderViewAllLink(viewAllUrl, products.map((product) => product.handle));

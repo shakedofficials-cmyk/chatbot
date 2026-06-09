@@ -132,7 +132,7 @@ export function buildFilteredSearchUrl(
   }
 
   const gender = effectiveFilters.gender ?? (
-    effectiveFilters.tags && ["men", "women"].includes(normalizeText(effectiveFilters.tags))
+    effectiveFilters.tags && ["men", "women", "kids"].includes(normalizeText(effectiveFilters.tags))
       ? effectiveFilters.tags
       : undefined
   );

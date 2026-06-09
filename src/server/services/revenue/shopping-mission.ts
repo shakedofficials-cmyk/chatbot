@@ -30,6 +30,14 @@ function hasSpecificStyle(filters: SearchFilters): boolean {
   );
 }
 
+function hasAudienceFilter(filters: SearchFilters): boolean {
+  return Boolean(filters.gender || filters.tags);
+}
+
+function asksForSavedProfile(normalizedQuery: string): boolean {
+  return /\b(?:my size|same size|usual size|in my size|for me|for myself|my pair)\b/i.test(normalizedQuery);
+}
+
 function primaryStyleSlot(filters: SearchFilters): string | undefined {
   return filters.silhouette ??
     filters.model ??
@@ -47,15 +55,22 @@ export function applyProfileToUnderstanding(
 
   const filters: SearchFilters = { ...understanding.filters };
   const wasSpecific = hasSpecificStyle(filters);
+  const hasAudience = hasAudienceFilter(filters);
+  const shouldUseProfileAsHardFilter = asksForSavedProfile(understanding.normalizedQuery) ||
+    (!wasSpecific && !hasAudience);
 
-  if (!filters.size && profile.preferredSize) filters.size = profile.preferredSize;
-  if (!filters.maxPrice && profile.preferredBudget) filters.maxPrice = profile.preferredBudget;
-  if (!filters.gender && profile.preferredGender) {
+  if (!filters.size && profile.preferredSize && shouldUseProfileAsHardFilter) {
+    filters.size = profile.preferredSize;
+  }
+  if (!filters.maxPrice && profile.preferredBudget && shouldUseProfileAsHardFilter) {
+    filters.maxPrice = profile.preferredBudget;
+  }
+  if (!filters.gender && profile.preferredGender && shouldUseProfileAsHardFilter) {
     filters.gender = profile.preferredGender;
     filters.tags = filters.tags ?? profile.preferredGender;
   }
 
-  if (!wasSpecific) {
+  if (!wasSpecific && !hasAudience) {
     if (!filters.brand && profile.favoriteBrands?.[0]) filters.brand = profile.favoriteBrands[0];
     if (
       profile.preferredCategories?.[0] &&
@@ -92,9 +107,14 @@ export function buildShoppingMission(understanding: QueryUnderstanding): Shoppin
   }
 
   const missingSlots: string[] = [];
-  if (!hasSpecificStyle(understanding.filters)) missingSlots.push("style");
-  if (!understanding.filters.size) missingSlots.push("size");
-  if (!understanding.filters.maxPrice) missingSlots.push("budget");
+  const hasStyleOrAudience = hasSpecificStyle(understanding.filters) ||
+    hasAudienceFilter(understanding.filters);
+
+  if (!hasStyleOrAudience) {
+    missingSlots.push("style");
+    if (!understanding.filters.size) missingSlots.push("size");
+    if (!understanding.filters.maxPrice) missingSlots.push("budget");
+  }
 
   const confidence = Math.max(0.25, Math.min(1, 1 - missingSlots.length * 0.22));
   return { confidence, missingSlots };
@@ -124,7 +144,20 @@ export function buildQuickReplies(params: {
 
   if (products.length > 0) {
     if (filters.size) {
-      replies.push({ label: `Secure size ${filters.size}`, prompt: `Add size ${filters.size} to cart` });
+      const productHandle = products[0]?.handle;
+      replies.push({
+        label: `Secure size ${filters.size}`,
+        prompt: productHandle
+          ? `Add size ${filters.size} to cart for ${productHandle}`
+          : `Add size ${filters.size} to cart`,
+        action: productHandle
+          ? {
+              type: "add_to_cart",
+              productHandle,
+              size: filters.size,
+            }
+          : undefined,
+      });
     }
     if (products.length >= 2) replies.push({ label: "Compare top 2", prompt: "Compare the top 2" });
     replies.push({ label: "Show similar", prompt: "Show me similar options" });

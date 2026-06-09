@@ -119,6 +119,8 @@ const STOP_WORDS = new Set([
   "the",
   "to",
   "want",
+  "what",
+  "which",
   "with",
   "you",
   "your",

@@ -43,33 +43,37 @@ function absoluteUrl(value: string | undefined): string {
   return value;
 }
 
-function extractHandles(html: string, limit: number): string[] {
+export function extractHandles(html: string, limit: number): string[] {
   const handles = new Set<string>();
-  const markerIndex = html.indexOf("productVariants");
-  const resultSection = markerIndex >= 0
-    ? html.slice(markerIndex, markerIndex + 250_000)
-    : html;
-  const normalizedSection = resultSection
+  const normalizedHtml = html
     .replace(/\\u0026/g, "&")
     .replace(/\\\//g, "/")
     .replace(/\\"/g, "\"");
+  const sectionStarts = [
+    normalizedHtml.indexOf("id=\"ResultsList\""),
+    normalizedHtml.indexOf("class=\"product-grid"),
+    normalizedHtml.indexOf("data-product-id"),
+    normalizedHtml.indexOf("productVariants"),
+  ].filter((index) => index >= 0);
+  const sections = [
+    ...sectionStarts.map((index) => normalizedHtml.slice(index, index + 400_000)),
+    normalizedHtml,
+  ];
   const patterns = [
+    /href="\/products\/([a-z0-9][a-z0-9-]*)/gi,
     /"url":"\/products\/([a-z0-9][a-z0-9-]*)/gi,
     /"url":"https?:\/\/[^/]+\/products\/([a-z0-9][a-z0-9-]*)/gi,
+    /\/products\/([a-z0-9][a-z0-9-]*)/gi,
   ];
 
-  for (const pattern of patterns) {
-    for (const match of normalizedSection.matchAll(pattern)) {
-      handles.add(match[1]);
-      if (handles.size >= limit) return Array.from(handles);
+  for (const section of sections) {
+    for (const pattern of patterns) {
+      pattern.lastIndex = 0;
+      for (const match of section.matchAll(pattern)) {
+        handles.add(match[1]);
+        if (handles.size >= limit) return Array.from(handles);
+      }
     }
-  }
-
-  if (handles.size > 0) return Array.from(handles);
-
-  for (const match of normalizedSection.matchAll(/\/products\/([a-z0-9][a-z0-9-]*)/gi)) {
-    handles.add(match[1]);
-    if (handles.size >= limit) break;
   }
 
   return Array.from(handles);

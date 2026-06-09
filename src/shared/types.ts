@@ -194,6 +194,11 @@ export interface ChatAction {
 export interface QuickReply {
   label: string;
   prompt: string;
+  action?: {
+    type: "add_to_cart";
+    productHandle: string;
+    size: string;
+  };
 }
 
 export interface ShoppingMission {
