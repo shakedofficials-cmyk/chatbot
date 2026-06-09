@@ -10,8 +10,8 @@ import { understandCatalogQuery } from "../services/retrieval/query-understandin
 import { buildFilteredSearchUrl } from "../services/shopify/search-url.js";
 import { searchPublicFilteredProducts } from "../services/shopify/public-search.js";
 import { findBestVariantMatch } from "../services/size-resolution.js";
+import { normalizeText } from "../services/retrieval/normalize.js";
 import {
-  productMatchesRequestedColor,
   rankProductsForRevenue,
 } from "../services/revenue/recommendations.js";
 import { buildWhatsAppActions, isHumanHandoffRequest } from "../services/revenue/whatsapp.js";
@@ -173,8 +173,54 @@ async function findClosestSizeAlternatives(
   return products;
 }
 
+function productHaystack(product: Product): string {
+  return normalizeText([
+    product.title,
+    product.handle,
+    product.vendor,
+    product.productType,
+    product.tags.join(" "),
+    product.description,
+    product.metafields.styleTags?.join(" "),
+    product.metafields.recommendedUse,
+    product.metafields.lifestyleType,
+    product.metafields.basketballType,
+    product.metafields.runningType,
+    product.metafields.trainingType,
+  ].filter(Boolean).join(" "));
+}
+
+function includesHardTerm(haystack: string, value: string | undefined): boolean {
+  const normalized = normalizeText(value);
+  return !normalized || haystack.includes(normalized);
+}
+
+function productMatchesHardFilters(product: Product, filters: SearchFilters): boolean {
+  const haystack = productHaystack(product);
+
+  if (filters.brand && normalizeText(product.vendor) !== normalizeText(filters.brand)) {
+    return false;
+  }
+
+  const category = filters.productType ?? filters.category;
+  if (category && !isGenericShoeCategory(category) && !includesHardTerm(haystack, category)) {
+    return false;
+  }
+
+  const model = filters.silhouette ?? filters.model;
+  if (model && !includesHardTerm(haystack, model)) {
+    return false;
+  }
+
+  if ((filters.gender === "kids" || filters.tags === "kids") && !/\b(kid|kids|children|child|youth|gs)\b/i.test(haystack)) {
+    return false;
+  }
+
+  return true;
+}
+
 function applyStrictResultFilters(products: Product[], filters: SearchFilters): Product[] {
-  return products.filter((product) => productMatchesRequestedColor(product, filters.color));
+  return products.filter((product) => productMatchesHardFilters(product, filters));
 }
 
 function mergeProductsByHandle(primary: Product[], supplemental: Product[]): Product[] {
