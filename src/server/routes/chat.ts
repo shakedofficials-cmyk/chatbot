@@ -195,10 +195,17 @@ function includesHardTerm(haystack: string, value: string | undefined): boolean 
   return !normalized || haystack.includes(normalized);
 }
 
+function productMatchesBrand(product: Product, brand: string | undefined): boolean {
+  const requested = normalizeText(brand);
+  if (!requested) return true;
+  const vendor = normalizeText(product.vendor);
+  return vendor === requested || vendor.includes(requested) || requested.includes(vendor);
+}
+
 function productMatchesHardFilters(product: Product, filters: SearchFilters): boolean {
   const haystack = productHaystack(product);
 
-  if (filters.brand && normalizeText(product.vendor) !== normalizeText(filters.brand)) {
+  if (!productMatchesBrand(product, filters.brand)) {
     return false;
   }
 

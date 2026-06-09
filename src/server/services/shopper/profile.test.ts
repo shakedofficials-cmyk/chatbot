@@ -35,7 +35,7 @@ describe("shopper profile", () => {
       preferredCategories: ["lifestyle"],
     };
 
-    expect(buildProfileSummary(preferences).badges).toEqual(["Size 44", "Nike", "Under $200", "lifestyle"]);
+    expect(buildProfileSummary(preferences).badges).toEqual(["Size 44", "Nike", "Under $200"]);
     expect(toSessionPreferences(preferences)).toMatchObject({
       favoriteBrand: "Nike",
       preferredSize: "44",

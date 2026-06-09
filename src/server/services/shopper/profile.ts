@@ -171,12 +171,13 @@ export async function mergeShopperProfile(
 }
 
 export function buildProfileSummary(preferences: ShopperProfilePreferences): ShopperProfileSummary {
+  const favoriteBrand = preferences.favoriteBrands?.[0];
   const badges = [
     preferences.preferredSize ? `Size ${preferences.preferredSize}` : null,
-    preferences.favoriteBrands?.[0],
+    favoriteBrand,
     preferences.preferredBudget ? `Under $${preferences.preferredBudget}` : null,
-    cleanCategoryChoice(preferences.preferredCategories?.[0]),
-    preferences.preferredColors?.[0],
+    favoriteBrand ? null : cleanCategoryChoice(preferences.preferredCategories?.[0]),
+    favoriteBrand ? null : preferences.preferredColors?.[0],
   ].filter((entry): entry is string => Boolean(entry)).slice(0, 4);
 
   return { badges, preferences };

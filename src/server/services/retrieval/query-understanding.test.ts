@@ -92,7 +92,7 @@ describe("Query Understanding", () => {
     const result = await understandCatalogQuery("what women on cloud shoes do you have");
     const sale = await understandCatalogQuery("what do you have on sale");
 
-    expect(result.filters.brand).toBe("On");
+    expect(result.filters.brand).toBe("ON Cloud");
     expect(result.filters.model).toBe("cloud");
     expect(result.filters.gender).toBe("women");
     expect(result.entities.searchTerm).toBe("cloud");

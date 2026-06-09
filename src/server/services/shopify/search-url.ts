@@ -12,6 +12,9 @@ export function getPublicStoreBaseUrl(): string {
 }
 
 function toFilterValue(value: string): string {
+  const normalized = normalizeText(value);
+  if (normalized === "on" || normalized === "on cloud") return "ON Cloud";
+
   return value
     .trim()
     .split(/\s+/)

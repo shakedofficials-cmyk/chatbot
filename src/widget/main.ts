@@ -1356,7 +1356,18 @@ class ORJNConciergeWidget {
   }
 
   private updateMemoryStrip(profile: ShopperProfileSummary | undefined): void {
-    if (!this.config.personalShopperEnabled || !profile?.badges.length) return;
+    if (!this.config.personalShopperEnabled) return;
+    if (!profile?.badges.length) {
+      this.memoryStrip.replaceChildren();
+      this.memoryStrip.classList.remove("active");
+      try {
+        window.localStorage.removeItem("orjn_concierge_profile_badges");
+      } catch {
+        // Local storage is optional.
+      }
+      return;
+    }
+
     this.memoryStrip.replaceChildren();
     profile.badges.slice(0, 4).forEach((badge) => {
       const item = document.createElement("span");

@@ -262,6 +262,13 @@ function titleCase(value: string): string {
     .join(" ");
 }
 
+function canonicalBrand(value: string | undefined): string | undefined {
+  const normalized = normalizeText(value);
+  if (!normalized) return undefined;
+  if (normalized === "on" || normalized === "on cloud") return "ON Cloud";
+  return titleCase(value!);
+}
+
 function canonicalCategory(value: string | null | undefined): string | undefined {
   const normalized = normalizeText(value);
   if (!normalized) return undefined;
@@ -433,7 +440,7 @@ function mergeAiUnderstanding(
   const mergedFilters: SearchFilters = {
     ...fallback.filters,
     brand: brand && !brandDuplicatesModel && brandAppearsSafely
-      ? titleCase(brand)
+      ? canonicalBrand(brand)
       : fallback.filters.brand,
     model: effectiveModel,
     silhouette: silhouette ?? fallback.filters.silhouette,
@@ -534,7 +541,7 @@ export async function understandCatalogQuery(
   ], size);
 
   const filters: SearchFilters = {
-    brand: brand ? brand.replace(/\b\w/g, (char) => char.toUpperCase()) : undefined,
+    brand: canonicalBrand(brand),
     model,
     silhouette,
     category: normalizedCategory,

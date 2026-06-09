@@ -135,4 +135,14 @@ describe("buildFilteredSearchUrl", () => {
     expect(url.searchParams.get("filter.v.availability")).toBe("1");
     expect(url.searchParams.get("filter.p.m.custom.gender")).toBe("Kids");
   });
+
+  it("uses the exact ORJN vendor value for ON Cloud filters", () => {
+    const url = new URL(
+      buildFilteredSearchUrl("cloud", { brand: "ON Cloud", model: "cloud", gender: "women", inStock: true })
+    );
+
+    expect(url.searchParams.get("q")).toBe("cloud");
+    expect(url.searchParams.get("filter.p.vendor")).toBe("ON Cloud");
+    expect(url.searchParams.get("filter.p.m.custom.gender")).toBe("Women");
+  });
 });
